@@ -1,0 +1,45 @@
+service: agentic-shareables-middleware
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1
+  environment:
+    CORE_API_URL: ${env:CORE_API_URL}
+    JWT_SECRET: ${env:JWT_SECRET}
+
+functions:
+  validateToken:
+    handler: src/handlers/validate.handler
+    events:
+      - http:
+          path: /validate/{token}
+          method: get
+          cors: true
+
+  getResource:
+    handler: src/handlers/resource.get
+    events:
+      - http:
+          path: /resource/{token}
+          method: get
+          cors: true
+
+  executeAction:
+    handler: src/handlers/action.execute
+    events:
+      - http:
+          path: /action
+          method: post
+          cors: true
+
+  corsHandler:
+    handler: src/handlers/cors.handler
+    events:
+      - http:
+          path: /{proxy+}
+          method: options
+          cors: true
+
+plugins:
+  - serverless-offline
