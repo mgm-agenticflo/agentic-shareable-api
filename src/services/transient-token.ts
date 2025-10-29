@@ -4,7 +4,7 @@ export class TransientTokenService {
 	private secret: string;
 
 	constructor() {
-		this.secret = process.env.JWT_SECRET || "default-secret";
+		this.secret = process.env.JWT_SECRET || String(Math.random());
 	}
 
 	verifyTransientToken(token: string, options?: jwt.VerifyOptions): any {

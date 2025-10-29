@@ -50,9 +50,13 @@ exports.execute = async (event) => {
 					);
 				}
 
-				// Extract new transient token from configuration
+				// Generate new transient token in middleware
 				const configResult = configData.result || configData.data;
-				newTransientToken = configResult.transientToken;
+				newTransientToken = coreApi.transientTokenService.generateTransientToken(
+					shareableToken,
+					configResult.type,
+					configResult.resource.id
+				);
 			} catch (refreshErr) {
 				console.error("Token refresh error:", refreshErr.message);
 				return error(

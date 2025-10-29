@@ -7,12 +7,11 @@ class TransientTokenService {
     this.expiresIn = '10s'; // 10 seconds
   }
 
-  generateTransientToken(shareableToken, resourceType, resourceId, workspaceId) {
+  generateTransientToken(shareableToken, resourceType, resourceId) {
     const payload = {
       shareableToken,
       resourceType,
       resourceId,
-      workspaceId,
       type: 'transient',
       iat: Math.floor(Date.now() / 1000)
     };

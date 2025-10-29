@@ -16,8 +16,19 @@ exports.get = async (event) => {
 
 		// Get resource configuration (includes validation)
 		const configData = await coreApi.getConfiguration(token);
+		const configResult = configData.result || configData.data || configData;
 
-		return success(configData.result || configData.data || configData);
+		// Generate transient token for frontend
+		const transientToken = coreApi.transientTokenService.generateTransientToken(
+			token,
+			configResult.type,
+			configResult.resource?.id || configResult.resourceId
+		);
+
+		return success({
+			...configResult,
+			transientToken
+		});
 	} catch (err) {
 		console.error("Resource error:", err.message);
 

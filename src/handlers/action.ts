@@ -60,9 +60,13 @@ export const execute = async (event: ActionEvent) => {
 					);
 				}
 
-				// Extract new transient token from configuration
+				// Generate new transient token in middleware
 				const configResult = configData.result || configData.data;
-				newTransientToken = configResult.transientToken;
+				newTransientToken = coreApi.transientTokenService.generateTransientToken(
+					shareableToken,
+					configResult.type,
+					configResult.resource.id
+				);
 			} catch (refreshErr: any) {
 				console.error("Token refresh error:", refreshErr.message);
 				return error(
@@ -80,35 +84,21 @@ export const execute = async (event: ActionEvent) => {
 		try {
 			switch (action) {
 				case "chat":
-					console.log("Calling chat API:", `/chats/new-message`);
-					console.log("Chat payload:", payload);
 
-					// Create a client with longer timeout for chat (AI responses take time)
-					const chatClient = axios.create({
-						baseURL: coreApi.baseURL,
-						timeout: 30000, // 30 seconds for AI responses
-						headers: { "Content-Type": "application/json" },
-					});
 
 					result = await coreApi.sendWebchatMessage(
 						newTransientToken || transientToken,
 						payload
 					);
-					console.log("Chat API result:", result);
 					break;
 
 				case "history":
-					console.log(
-						"Calling history API:",
-						`/chats/webchat/${shareableToken}/history`
-					);
 					try {
 						result = await coreApi.getWebchatHistory(
 							newTransientToken || transientToken,
 							payload.sessionId
 						);
 					} catch (historyError) {
-						console.log("History API failed, retrying in 10 seconds...");
 						await new Promise(resolve => setTimeout(resolve, 10000));
 						result = await coreApi.getWebchatHistory(
 							newTransientToken || transientToken,
@@ -121,14 +111,11 @@ export const execute = async (event: ActionEvent) => {
 					return error("Unsupported action", 400, "UNSUPPORTED_ACTION");
 			}
 
-			console.log("API response received:", result);
-			console.log("API response data:", result.data);
 
 			const responseData = {
 				...(result.result && { ...result.result }),
 				...(newTransientToken && { newTransientToken }),
 			};
-			console.log("Final response data:", responseData);
 			return success(responseData);
 		} catch (apiError: any) {
 			console.error("API call failed:", {
