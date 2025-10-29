@@ -17,7 +17,7 @@ exports.get = async (event) => {
 		// Get resource configuration (includes validation)
 		const configData = await coreApi.getConfiguration(token);
 
-		return success(configData);
+		return success(configData.result || configData.data || configData);
 	} catch (err) {
 		console.error("Resource error:", err.message);
 

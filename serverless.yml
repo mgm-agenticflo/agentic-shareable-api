@@ -4,6 +4,23 @@ provider:
   name: aws
   runtime: nodejs18.x
   region: us-east-1
+  httpApi:
+    cors:
+      allowedOrigins:
+        - "*"
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Amz-Date
+        - X-Api-Key
+        - X-Amz-Security-Token
+        - X-Amz-User-Agent
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
   environment:
     CORE_API_URL: ${env:CORE_API_URL}
     JWT_SECRET: ${env:JWT_SECRET}
@@ -27,6 +44,7 @@ functions:
 
   executeAction:
     handler: src/handlers/action.execute
+    timeout: 60
     events:
       - http:
           path: /action
