@@ -21,7 +21,7 @@ export class CoreApiService {
 	async getConfiguration(shareableToken: string) {
 		try {
 			const response = await this.client.get(
-				`/shareable/resource/${shareableToken}`
+				`/shareable/validate/${shareableToken}`
 			);
 			return response.data;
 		} catch (error: any) {
