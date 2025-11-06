@@ -1,0 +1,21 @@
+{
+  "editor.tabSize": 2,
+  "editor.copyWithSyntaxHighlighting": false,
+  "editor.suggestSelection": "first",
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  // Ensure ESLint doesn’t re-run Prettier as a rule
+  "eslint.codeActionsOnSave.mode": "problems",
+  "editor.wordWrap": "wordWrapColumn",
+  "editor.wordWrapColumn": 120,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}

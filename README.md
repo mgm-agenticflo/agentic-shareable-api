@@ -1,6 +1,7 @@
 # Agentic Shareables Middleware
 
-A serverless middleware API for managing shareable token communication between web pages and the core API. This service acts as a secure gateway to prevent direct API abuse.
+A serverless middleware API for managing shareable token communication between web pages and the core API. This service
+acts as a secure gateway to prevent direct API abuse.
 
 ## Features
 
@@ -14,24 +15,31 @@ A serverless middleware API for managing shareable token communication between w
 ## API Endpoints
 
 ### Validate Token
+
 ```
 GET /validate/{token}
 ```
+
 Validates a shareable token and returns resource information.
 
 ### Get Resource
+
 ```
 GET /resource/{token}
 ```
+
 Retrieves filtered resource data for the given token.
 
 ### Execute Action
+
 ```
 POST /action/{token}
 ```
+
 Executes an action on the resource associated with the token.
 
 **Request Body:**
+
 ```json
 {
   "action": "chat|config|authenticate|status",
@@ -42,11 +50,13 @@ Executes an action on the resource associated with the token.
 ## Supported Resource Types
 
 ### Assistant (Webchat)
+
 - **Actions**: `chat`, `config`
 - **Origin Validation**: Required
 - **Rate Limiting**: 100 requests/minute per token
 
 ### Integration
+
 - **Actions**: `authenticate`, `status`
 - **Origin Validation**: Not required
 - **Rate Limiting**: 100 requests/minute per token
@@ -54,17 +64,20 @@ Executes an action on the resource associated with the token.
 ## Setup
 
 1. Install dependencies:
+
    ```bash
    npm install
    ```
 
 2. Configure environment:
+
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
    ```
 
 3. Start development server:
+
    ```bash
    npm run dev
    ```
@@ -76,8 +89,8 @@ Executes an action on the resource associated with the token.
 
 ## Environment Variables
 
-- `CORE_API_URL`: URL of the core AgenticFlo API
-- `JWT_SECRET`: Secret for JWT token validation
+- `AGENTICFLO_BASE_URL`: URL of the core AgenticFlo API
+- `CLIENT_AUTH_SECRET`: Secret for JWT token validation
 
 ## Security Features
 

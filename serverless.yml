@@ -1,13 +1,42 @@
-service: agentic-shareables-middleware
+service: agentic-shareables-api
+useDotenv: true
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+
+custom:
+  esbuild:
+    bundle: true
+    external: []
+    minify: true
+    target: node22
+    platform: node
+    format: esm
+    banner:
+      js: 'import { createRequire } from "module"; const require = createRequire(import.meta.url);'
+    keepNames: false
+    sourcesContent: false
+    sourcemap: false # do not create source maps, cleaner and faster prod setup
+    watch: true # usefull for dev, harmless for prod
+
+  serverless-offline:
+    host: 127.0.0.1
+    httpPort: ${env:OFFLINE_HTTP_PORT, 6000}
+    websocketPort: ${env:OFFLINE_WS_PORT, 6001}
+
+  logLevel:
+    dev: 'debug'
+    prod: 'warn'
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs22.x
   region: us-east-1
   httpApi:
     cors:
       allowedOrigins:
-        - "*"
+        - '*'
       allowedHeaders:
         - Content-Type
         - Authorization
@@ -22,42 +51,34 @@ provider:
         - DELETE
         - OPTIONS
   environment:
-    CORE_API_URL: ${env:CORE_API_URL}
-    JWT_SECRET: ${env:JWT_SECRET}
+    AGENTICFLO_BASE_URL: ${env:AGENTICFLO_BASE_URL}
+    AGENTICFLO_REQUEST_TIMEOUT: ${env:AGENTICFLO_REQUEST_TIMEOUT, 10000}
+    AGENTICFLO_BACKPLANE_TOKEN: ${env:AGENTICFLO_BACKPLANE_TOKEN}
+    AGENTICFLO_TLS_INSECURE: ${env:AGENTICFLO_TLS_INSECURE}
+    CLIENT_AUTH_SECRET: ${env:CLIENT_AUTH_SECRET}
+    IS_OFFLINE: ${env:IS_OFFLINE, 'false'}
+    LOG_LEVEL: ${self:custom.logLevel.${sls:stage}, 'info'}
+    STAGE: ${sls:stage, 'dev'}
+    OFFLINE_HTTP_PORT: ${env:OFFLINE_HTTP_PORT, 6000}
+    OFFLINE_WS_PORT: ${env:OFFLINE_WS_PORT, 6001}
 
 functions:
-  validateToken:
-    handler: src/handlers/validate.handler
-    events:
-      - http:
-          path: /validate/{token}
-          method: get
-          cors: true
-
-  getResource:
-    handler: src/handlers/resource.get
-    events:
-      - http:
-          path: /resource/{token}
-          method: get
-          cors: true
-
-  executeAction:
-    handler: src/handlers/action.execute
+  webchatRouter:
+    handler: src/router.handler
     timeout: 60
     events:
-      - http:
-          path: /action
-          method: post
-          cors: true
+      # HTTP API
+      - httpApi:
+          path: /resource/{token}
+          method: GET
+      - httpApi:
+          path: /{resource}/{action+}
+          method: any
 
-  corsHandler:
-    handler: src/handlers/cors.handler
-    events:
-      - http:
-          path: /{proxy+}
-          method: options
-          cors: true
-
-plugins:
-  - serverless-offline
+      # WebSocket
+      - websocket:
+          route: $connect
+      - websocket:
+          route: $disconnect
+      - websocket:
+          route: $default

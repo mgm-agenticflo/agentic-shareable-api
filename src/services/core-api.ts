@@ -1,77 +1,112 @@
-import axios, { AxiosInstance } from "axios";
-import { TransientTokenService } from "./transient-token";
+/**
+ * Business logic service for Core API operations.
+ *
+ * Handles shareable token validation, webchat messaging, and history retrieval.
+ */
 
-export class CoreApiService {
-	public baseURL: string;
-	public transientTokenService: TransientTokenService;
-	private client: AxiosInstance;
+import { AxiosInstance } from 'axios';
+import { tokenService, TransientTokenService } from './transient-token';
+import logger from '../utils/logger';
+import { getHttpClient } from './http-client';
+import { ShareableContext } from '../types/shareable-context';
 
-	constructor() {
-		this.baseURL = process.env.CORE_API_URL!;
-		this.transientTokenService = new TransientTokenService();
-		this.client = axios.create({
-			baseURL: this.baseURL,
-			timeout: 10000, // 10 seconds
-			headers: {
-				"Content-Type": "application/json",
-			},
-		});
-	}
+/**
+ * Service for interacting with the Core API.
+ *
+ * Provides methods for:
+ * - Validating shareable tokens
+ * - Sending webchat messages
+ * - Retrieving webchat history
+ */
+export const CreateCoreApiService = (client: AxiosInstance, tokenService: TransientTokenService) => ({
+  /**
+   * Validates a shareable token and retrieves its configuration.
+   *
+   * @param shareableToken - The shareable token to validate
+   * @returns Configuration data associated with the token
+   * @throws {HttpClientError} With code INVALID_TOKEN if token is invalid
+   * @throws {HttpClientError} With code CONFIGURATION_ERROR for other errors
+   *
+   * @example
+   * ```typescript
+   * const config = await coreApi.getConfiguration('token123');
+   * ```
+   */
+  getConfiguration: async (shareableToken: string): Promise<ShareableContext | null> => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
+    const response = await client.get(`/shareable`, { headers });
+    if (!response.data.success) {
+      throw new Error(`Failed to fetch resource ${response.data.result}`);
+    }
+    return response.data.result;
+  },
 
-	async getConfiguration(shareableToken: string) {
-		try {
-			const response = await this.client.get(
-				`/shareable/validate/${shareableToken}`
-			);
-			return response.data;
-		} catch (error: any) {
-			console.error("Resource error:", {
-				status: error.response?.status,
-				data: error.response?.data,
-				message: error.message,
-			});
+  /**
+   * Sends a message in a webchat session.
+   *
+   * @param authToken - Transient authentication token
+   * @param payload - Message payload with sessionId and message content
+   * @returns Response data from the message endpoint
+   * @throws {HttpClientError} With code INVALID_TOKEN if token is invalid
+   * @throws {HttpClientError} With code MESSAGE_ERROR for other errors
+   *
+   * @example
+   * ```typescript
+   * const result = await coreApi.sendWebchatMessage(token, {
+   *   sessionId: 'session123',
+   *   message: 'Hello!'
+   * });
+   * ```
+   */
+  sendWebchatMessage: async (
+    sessionId: string,
+    payload: { message: string; [key: string]: unknown },
+    shareableToken: string
+  ) => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
 
-			if (error.response?.status === 403) {
-				throw new Error("INVALID_TOKEN");
-			}
-			throw new Error(`CONFIGURATION_ACCESS_ERROR: ${error.message}`);
-		}
-	}
+    logger.info('Sending webchat message', { sessionId });
+    const response = await client.post(`/webchat/${sessionId}`, payload, { headers });
+    if (!response.data.success) {
+      throw new Error(`Failed to fetch resource ${response.data.result}`);
+    }
+    return response.data.result;
+  },
 
-	async sendWebchatMessage(transientToken: string, payload: any) {
-		try {
-			const tokenPayload =
-				this.transientTokenService.verifyTransientToken(transientToken);
-			const headers = {
-				Authorization: `Bearer ${transientToken}`,
-				"x-session-id": payload.sessionId,
-				"x-shareable-token": tokenPayload.shareableToken,
-			};
-			const response = await this.client.post(`/chats/new-message`, payload, {
-				headers,
-			});
-			return response.data;
-		} catch (error) {
-			throw new Error("WEBCHAT_MESSAGE_ERROR");
-		}
-	}
+  /**
+   * Retrieves the message history for a webchat session.
+   *
+   * @param authToken - Transient authentication token
+   * @param sessionId - The session ID to retrieve history for
+   * @returns Array of message objects
+   * @throws {HttpClientError} With code INVALID_TOKEN if token is invalid
+   * @throws {HttpClientError} With code HISTORY_ERROR for other errors
+   *
+   * @example
+   * ```typescript
+   * const messages = await coreApi.getWebchatHistory(token, 'session123');
+   * ```
+   */
+  getWebchatHistory: async (sessionId: string, shareableToken: string) => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
 
-	async getWebchatHistory(transientToken: string, sessionId: string) {
-		try {
-			const tokenPayload =
-				this.transientTokenService.verifyTransientToken(transientToken);
-			const headers = {
-				Authorization: `Bearer ${transientToken}`,
-				"x-session-id": sessionId,
-				"x-shareable-token": tokenPayload.shareableToken,
-			};
-			const response = await this.client.get(`/chats/history`, {
-				headers,
-			});
-			console.log("History response data:", response.data);
-			return response?.data?.data?.messages || [];
-		} catch (error) {
-			throw new Error("WEBCHAT_HISTORY_ERROR");
-		}
-	}
-}
+    logger.info('Fetching webchat history', { sessionId });
+    const response = await client.get(`/webchat/history/${sessionId}`, { headers });
+
+    if (!response.data.success) {
+      throw new Error(`Failed to fetch webchat history ${response.data.result}`);
+    }
+    const messages = response.data.result || [];
+    logger.debug('History retrieved', { messageCount: messages.length });
+    return messages;
+  }
+});
+
+export type CoreApiService = ReturnType<typeof CreateCoreApiService>;
+export const coreApi = CreateCoreApiService(getHttpClient(), tokenService);
