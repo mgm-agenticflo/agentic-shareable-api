@@ -1,33 +1,34 @@
 import { APIGatewayProxyEventV2, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
 import { ShareableContext } from './shareable-context';
+import { TransientContext } from './transient-context';
 
-export enum ContextTypes {
-  Websocket = 'websocket',
-  Http = 'http'
-}
-
-export type HttpProtocol = 'http' | 'https';
-export type WsProtocol = 'ws' | 'wss';
-export type Protocol = HttpProtocol | WsProtocol;
-
-// Base context with all common fields
-export interface ParsedRequestContext {
-  type: ContextTypes;
-  resource?: string;
+export type TargetResource = {
+  method: string;
+  resource: string;
   action?: string;
-  protocol: Protocol;
-  domainName: string;
-  stage: string;
-  body: Record<string, unknown>;
+};
+
+export type RequestEvent = {
+  httpContext?: APIGatewayProxyEventV2;
+  websocketContext?: APIGatewayProxyWebsocketEventV2;
   shareableContext?: ShareableContext;
+  transientContext?: TransientContext;
+  parsedBody: unknown;
+  targetResource: TargetResource;
+};
 
-  // HTTP-specific fields (undefined for websocket)
-  method?: string;
-  pathParams?: Record<string, any>;
-  queryParams?: Record<string, string | undefined>;
+export type WithShareable = RequestEvent & { shareableContext: ShareableContext };
+export type WithHttp = RequestEvent & { httpContext: APIGatewayProxyEventV2 };
 
-  // Websocket-specific fields (undefined for http)
-  connectionId?: string;
-}
+export type WebchatRequestPayload = {
+  sessionId: string;
+  [key: string]: unknown;
+};
 
-export type RequestEvent = APIGatewayProxyEventV2 | APIGatewayProxyWebsocketEventV2;
+export type WebchatMessageRequest = WebchatRequestPayload & {
+  message: string;
+};
+
+export type ResourceRequest = {
+  token: string;
+};

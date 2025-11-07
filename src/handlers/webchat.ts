@@ -1,28 +1,29 @@
+import { HttpStatusCode } from 'axios';
 import { HttpError } from '../errors/http-error';
 import { coreApi, CoreApiService } from '../services/core-api';
-import { ParsedRequestContext, RequestEvent } from '../types/request-types';
+import { WebchatMessageRequest, WebchatRequestPayload, WithShareable } from '../types/request-types';
 
 const CreateWebChatModule = (coreApi: CoreApiService) => ({
-  send: async (event: RequestEvent, context: ParsedRequestContext) => {
-    const body = JSON.parse(event.body || '{}');
-    const { sessionId, ...payload } = body;
+  send: async (event: WithShareable) => {
+    const { sessionId, ...payload } = event.parsedBody as WebchatMessageRequest;
 
     if (!payload || !payload.message) {
-      throw new HttpError(400, 'Message is required');
+      throw new HttpError(HttpStatusCode.BadRequest, 'message is required');
     }
 
-    return coreApi.sendWebchatMessage(sessionId, payload, context.shareableContext?.token!);
+    const result = await coreApi.sendWebchatMessage(sessionId, payload, event.shareableContext.token);
+    return { result };
   },
 
-  getHistory: async (event: RequestEvent, context: ParsedRequestContext) => {
-    const body = JSON.parse(event.body || '{}');
-    const { sessionId } = body;
+  getHistory: async (event: WithShareable) => {
+    const { sessionId } = event.parsedBody as WebchatRequestPayload;
 
     if (!sessionId) {
-      return new HttpError(400, 'Session ID is required');
+      throw new HttpError(HttpStatusCode.BadRequest, 'session id is required');
     }
 
-    return coreApi.getWebchatHistory(sessionId, context.shareableContext?.token!);
+    const result = await coreApi.getWebchatHistory(sessionId, event.shareableContext.token);
+    return { result };
   }
 });
 

@@ -12,6 +12,6 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", ".eslintrc.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

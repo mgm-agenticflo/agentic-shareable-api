@@ -1,77 +1,33 @@
-import { APIGatewayProxyEventV2, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
-import { ContextTypes, HttpProtocol, ParsedRequestContext, Protocol, RequestEvent } from '../types/request-types';
+import { APIGatewayProxyEventHeaders, APIGatewayProxyEventV2 } from 'aws-lambda';
+import { RequestEvent } from '../types/request-types';
 
 /**
- * Type guard to check if a parsed request context is a WebSocket connection.
+ * Retrieves a header value from API Gateway event headers in a case-insensitive manner.
  *
- * Determines whether the incoming request is from a WebSocket connection
- * by checking the context type property.
+ * Searches through the headers object and performs case-insensitive matching
+ * against the provided header name. This is necessary because HTTP headers are
+ * case-insensitive by specification, but JavaScript object keys are case-sensitive.
  *
- * @param ctx - Parsed request context to check
- * @returns `true` if the context represents a WebSocket connection, otherwise `false`
- *
- * @example
- * ```typescript
- * if (isWebsocket(context)) {
- *   // Handle WebSocket-specific logic
- *   await sendWebSocketMessage(context.connectionId, data);
- * } else {
- *   // Handle HTTP logic
- *   return { statusCode: 200, body: JSON.stringify(data) };
- * }
- * ```
- */
-export const isWebsocket = (ctx: ParsedRequestContext | undefined): boolean => ctx?.type === ContextTypes.Websocket;
-
-/**
- * Constructs the API Gateway Management API endpoint URL for WebSocket connections.
- *
- * Builds the endpoint URL needed to send messages back to WebSocket clients
- * using the `@aws-sdk/client-apigatewaymanagementapi` client.
- *
- * Format: `https://{domainName}/{stage}` or `http://...` for offline mode
- *
- * @param ctx - Parsed WebSocket request context containing domain and stage info
- * @returns Full endpoint URL for the API Gateway Management API
- *
- * @example
- * ```typescript
- * const endpoint = getWebsocketEndpoint(context);
- * // => 'https://abc123.execute-api.us-east-1.amazonaws.com/prod'
- * // => 'http://localhost:3001/dev' (offline)
- * ```
- */
-export function getWebsocketEndpoint(ctx: ParsedRequestContext): string {
-  const { protocol, domainName, stage } = ctx;
-  const scheme = getHttpScheme(protocol);
-  return `${scheme}://${domainName}/${stage}`;
-}
-
-/**
- * Retrieves a header value from an API Gateway event in a case-insensitive manner.
- *
- * Searches through the event's headers object and performs case-insensitive
- * matching against the provided header name. Returns `undefined` if the
- * header is not found or if the event has no headers.
- *
- * @param event - The API Gateway or WebSocket request event
- * @param name - Header name to search for (case-insensitive)
+ * @param headers - The headers object from an API Gateway event
+ * @param name - Header name to search for (case-insensitive, e.g., 'Authorization', 'content-type')
  * @returns The header value if found, otherwise `undefined`
  *
  * @example
  * ```typescript
- * const contentType = getHeader(event, 'Content-Type');
- * const auth = getHeader(event, 'authorization');
- * // Works regardless of header name casing
+ * const headers = event.headers;
+ * const contentType = getHeader(headers, 'Content-Type');
+ * const auth = getHeader(headers, 'authorization'); // Works with any casing
+ * const bearer = getHeader(headers, 'AUTHORIZATION'); // Also works
  * ```
  */
-export function getHeader(event: RequestEvent, name: string): string | undefined {
-  if ('headers' in event && event.headers) {
-    const h = (event.headers ?? {}) as Record<string, string | undefined>;
-    const target = name.toLowerCase();
-    for (const k in h) {
-      if (k.toLowerCase() === target) return h[k];
-    }
+export function getHeader(headers: APIGatewayProxyEventHeaders, name: string): string | undefined {
+  if (!headers) {
+    return;
+  }
+  const h = headers as Record<string, string | undefined>;
+  const target = name.toLowerCase();
+  for (const k in h) {
+    if (k.toLowerCase() === target) return h[k];
   }
   return undefined;
 }
@@ -81,19 +37,30 @@ export function getHeader(event: RequestEvent, name: string): string | undefined
  *
  * Features:
  * - Decodes Base64-encoded bodies when `isBase64Encoded` is true
- * - Returns an empty object on parse errors or null/undefined input
- * - Type-safe with generic return type
+ * - Returns an empty object `{}` on parse errors, null, or undefined input
+ * - Type-safe with generic return type for type inference
+ * - Never throws errors - always returns a valid object
  *
- * @param body - Raw request body (may be Base64 encoded)
- * @param isBase64Encoded - Whether the body is Base64 encoded (default: false)
- * @returns Parsed JSON object, or empty object if parsing fails
+ * @template T - The expected type of the parsed JSON (defaults to `Record<string, unknown>`)
+ * @param body - Raw request body string (may be Base64 encoded)
+ * @param isBase64Encoded - Whether the body is Base64 encoded (defaults to false)
+ * @returns Parsed JSON object of type T, or empty object `{}` if parsing fails
  *
  * @example
  * ```typescript
- * const data = safeJson<UserPayload>(event.body, event.isBase64Encoded);
+ * // Parse a normal JSON body
+ * const data = safeJson<UserPayload>(event.body);
  * // => { userId: '123', name: 'Alice' }
  *
+ * // Parse a Base64-encoded body
+ * const decoded = safeJson(event.body, event.isBase64Encoded);
+ * // => { message: 'Hello' }
+ *
+ * // Handles invalid JSON gracefully
  * const empty = safeJson(null);
+ * // => {}
+ *
+ * const alsoEmpty = safeJson('invalid json');
  * // => {}
  * ```
  */
@@ -108,96 +75,18 @@ export function safeJson<T = Record<string, unknown>>(body: string | null | unde
 }
 
 /**
- * Extracts and parses the request body from an API Gateway or WebSocket event.
- *
- * Handles both plain and Base64-encoded payloads, automatically decoding
- * and parsing JSON content. Returns an empty object if the body is missing
- * or invalid.
- *
- * @param e - The API Gateway or WebSocket request event
- * @returns Parsed body as a key-value object, or empty object if parsing fails
- *
- * @example
- * ```typescript
- * const body = parseBody(event);
- * // => { userId: '123', action: 'create' }
- * ```
- */
-export function parseBody(e: RequestEvent): Record<string, unknown> {
-  const rawBody = 'body' in e ? e.body : null;
-  const isB64 = 'isBase64Encoded' in e ? Boolean(e.isBase64Encoded) : false;
-  return safeJson<Record<string, unknown>>(rawBody, isB64);
-}
-
-/**
- * Detects the protocol (http/https/ws/wss) for the incoming request.
- *
- * Protocol detection logic:
- * 1. Checks `x-forwarded-proto` header first (set by API Gateway/ALB)
- * 2. Falls back to inferring from event type and environment:
- *    - WebSocket events: `ws` (offline) or `wss` (deployed)
- *    - HTTP events: `http` (offline) or `http` (deployed)
- *
- * @param event - The API Gateway or WebSocket request event
- * @returns The detected protocol: 'http', 'https', 'ws', or 'wss'
- *
- * @example
- * ```typescript
- * const protocol = detectProtocol(event);
- * // => 'wss' (for deployed WebSocket)
- * // => 'ws' (for local WebSocket)
- * // => 'http' (for HTTP request)
- * ```
- */
-export function detectProtocol(event: RequestEvent): Protocol {
-  const xfProto = getHeader(event, 'x-forwarded-proto');
-  if (xfProto) {
-    const v = String(xfProto).toLowerCase();
-    if (v === 'http' || v === 'https' || v === 'ws' || v === 'wss') return v;
-  }
-  const offline = process.env.IS_OFFLINE === 'true';
-  if (isWebsocketEvent(event)) {
-    return offline ? 'ws' : 'wss';
-  }
-  return offline ? 'http' : 'http';
-}
-
-/**
- * Parses API Gateway path parameters based on the route pattern `/{resource}/{action+}`.
- *
- * Extracts the resource and action from path parameters, where action+ is a greedy
- * path parameter that can contain multiple segments separated by forward slashes.
- * Additional path segments beyond the first action are captured in `additionalParams`.
- *
- * @param pathParameters - Path parameters from API Gateway event
- * @returns Object containing resource, action, and enriched pathParams with additionalParams array
- *
- * @example
- * // Route: /users/profile/settings/email
- * // Returns: { resource: 'users', action: 'profile', pathParams: { resource: 'users', 'action+': 'profile/settings/email', additionalParams: ['settings', 'email'] } }
- */
-export function parsePathParameters(pathParameters: Record<string, any> = {}) {
-  const resource = pathParameters.resource;
-  const actionPath = pathParameters['action+'] || pathParameters.action || '';
-  const actionParts = actionPath.split('/').filter(Boolean);
-  const action = actionParts[0];
-  const additionalParams = actionParts.slice(1);
-
-  return { resource, action, pathParams: { ...pathParameters, additionalParams } };
-}
-
-/**
  * Safely extracts a human-readable error message from an unknown error value.
  *
  * Handles various error formats that may be thrown in JavaScript/TypeScript:
- * - `Error` instances: Returns the `message` property
+ * - `Error` instances (including subclasses): Returns the `message` property
  * - String values: Returns the string directly
- * - Other types: Returns a generic fallback message
+ * - All other types: Returns a generic fallback message
  *
- * Useful in catch blocks where the error type is unknown.
+ * This function is particularly useful in catch blocks where the error type is
+ * unknown, as TypeScript's catch clause variables are typed as `unknown`.
  *
  * @param err - The caught error (can be Error, string, or any other type)
- * @returns A safe, non-empty string message
+ * @returns A safe, non-empty string message describing the error
  *
  * @example
  * ```typescript
@@ -205,8 +94,20 @@ export function parsePathParameters(pathParameters: Record<string, any> = {}) {
  *   await riskyOperation();
  * } catch (err) {
  *   const message = getErrorMessage(err);
- *   logger.error('Operation failed', message);
+ *   logger.error('Operation failed:', message);
  * }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * getErrorMessage(new Error('Database connection failed'));
+ * // => 'Database connection failed'
+ *
+ * getErrorMessage('Something went wrong');
+ * // => 'Something went wrong'
+ *
+ * getErrorMessage({ code: 500 });
+ * // => 'Unexpected error occurred'
  * ```
  */
 export function getErrorMessage(err: unknown): string {
@@ -217,98 +118,77 @@ export function getErrorMessage(err: unknown): string {
 
 /**
  * Type guard that checks whether an unknown value is a non-null object
- * containing a given property key.
+ * containing a specific property key.
  *
- * Useful for safely using the `'in'` operator or accessing dynamic keys
- * without triggering TypeScript or ESLint "unsafe access" warnings.
+ * This function is useful for safely using the `in` operator or accessing
+ * dynamic properties without triggering TypeScript or ESLint warnings about
+ * unsafe member access on unknown types.
  *
- * @param mystery - The value to test.
- * @param key - The property key to check for.
- * @returns True if `mystery` is an object (not null) and has the specified key.
+ * After this check passes, TypeScript narrows the type to `Record<string, unknown>`,
+ * allowing safe property access.
+ *
+ * @param mystery - The value to test (can be any type)
+ * @param key - The property key to check for
+ * @returns `true` if `mystery` is an object (not null) and has the specified key
  *
  * @example
- * if (hasKey(payload, 'id')) {
- *   console.log(payload.id); // Safe access, payload is now narrowed
+ * ```typescript
+ * function processPayload(payload: unknown) {
+ *   if (hasKey(payload, 'id')) {
+ *     console.log(payload.id); // TypeScript knows payload is Record<string, unknown>
+ *   }
  * }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * hasKey({ id: 123, name: 'Alice' }, 'id');
+ * // => true
+ *
+ * hasKey({ id: 123 }, 'email');
+ * // => false
+ *
+ * hasKey(null, 'id');
+ * // => false
+ *
+ * hasKey('string', 'length');
+ * // => false (strings are not plain objects)
+ * ```
  */
 export function hasKey(mystery: unknown, key: string): mystery is Record<string, unknown> {
   return typeof mystery === 'object' && mystery !== null && key in mystery;
 }
 
 /**
- * Type guard that determines whether the given event is a WebSocket event.
+ * Parses an AWS API Gateway V2 HTTP event into a structured request object.
  *
- * Checks for the presence of the `connectionId` property in the event's `requestContext`,
- * which is the definitive indicator of an API Gateway WebSocket event.
+ * Extracts the HTTP method, resource, and action from the event's path and request context,
+ * and safely parses the request body (handling base64 encoding if present).
  *
- * @param event - The API Gateway event to inspect
- * @returns True if the event is a WebSocket event (APIGatewayProxyWebsocketEventV2)
- *
- * @example
- * if (isWebsocketEvent(event)) {
- *   console.log(event.requestContext.connectionId);
- * }
- */
-export function isWebsocketEvent(event: RequestEvent): event is APIGatewayProxyWebsocketEventV2 {
-  return 'requestContext' in event && 'connectionId' in event.requestContext;
-}
-
-/**
- * Type guard that determines whether the given event is an HTTP event.
- *
- * Identifies API Gateway HTTP events (v2) by checking for the `http` property
- * in the event's `requestContext`, which contains HTTP-specific metadata like
- * method, path, protocol, and source IP.
- *
- * @param event - The API Gateway event to inspect
- * @returns True if the event is an HTTP event (APIGatewayProxyEventV2)
+ * @param event - The API Gateway Proxy Event V2 object containing request details
+ * @returns A RequestEvent object containing:
+ *   - httpContext: The original event object
+ *   - parsedBody: The safely parsed request body (JSON or null)
+ *   - targetResource: Object with method, resource (first path segment), and action (second path segment)
  *
  * @example
- * if (isHttpEvent(event)) {
- *   console.log(event.requestContext.http.method);
- * }
+ * // For a request to POST /users/create
+ * const requestEvent = parseHttpEvent(event);
+ * // Returns: { targetResource: { method: 'POST', resource: 'users', action: 'create' }, ... }
  */
-export function isHttpEvent(event: RequestEvent): event is APIGatewayProxyEventV2 {
-  return 'requestContext' in event && 'http' in event.requestContext;
-}
+export function parseHttpEvent(event: APIGatewayProxyEventV2): RequestEvent {
+  const {
+    http: { path, method }
+  } = event.requestContext;
 
-/**
- * Type guard that determines whether a parsed request context
- * represents a WebSocket connection.
- *
- * @param event - The parsed request context to evaluate.
- * @returns True if the context represents a WebSocket request; otherwise false.
- */
-export function isWebsocketContext(ctx: ParsedRequestContext): ctx is ParsedRequestContext & { connectionId: string } {
-  return ctx.type === ContextTypes.Websocket;
-}
+  const pathParts = path?.split('/').filter(Boolean) ?? [];
+  const resource = pathParts[0] ?? undefined;
+  const action = pathParts[1] ?? undefined;
+  const targetResource = { method, resource, action };
 
-/**
- * Type guard that determines whether a parsed request context
- * represents an HTTP connection.
- *
- * @param event - The parsed request context to evaluate.
- * @returns True if the context represents an HTTP request; otherwise false.
- */
-export function isHttpContext(ctx: ParsedRequestContext): ctx is ParsedRequestContext & { method: string } {
-  return ctx.type === ContextTypes.Http;
-}
-
-/**
- * Converts a low-level WebSocket protocol value to its equivalent HTTP scheme.
- *
- * For WebSocket protocols (`ws`, `wss`), this returns the corresponding
- * HTTP schemes (`http`, `https`). Any other protocol value is returned unchanged.
- *
- * @param protocol - The protocol string to convert (e.g., `ws`, `wss`, `http`, `https`).
- * @returns The corresponding HTTP scheme (`http` or `https`) or the input protocol itself.
- *
- * @example
- * getHttpScheme('wss'); // 'https'
- * getHttpScheme('ws');  // 'http'
- * getHttpScheme('https'); // 'https'
- */
-export function getHttpScheme(protocol: Protocol): HttpProtocol {
-  const scheme = protocol === 'wss' ? 'https' : protocol === 'ws' ? 'http' : protocol;
-  return scheme;
+  return {
+    httpContext: event,
+    parsedBody: safeJson(event.body, event.isBase64Encoded),
+    targetResource
+  };
 }

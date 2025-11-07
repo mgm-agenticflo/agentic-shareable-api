@@ -1,35 +1,44 @@
-/**
- * HTTP client factory for backend communication.
- *
- * Provides a configured axios instance with standardized settings
- * for timeout, headers, and error handling.
- */
-
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, HttpStatusCode } from 'axios';
 import logger from '../utils/logger';
 import { HttpError } from '../errors/http-error';
 import { getErrorMessage } from '../utils/lib';
 import https from 'node:https';
 
+/**
+ * Default timeout for HTTP requests in milliseconds.
+ */
 const DEFAULT_REQUEST_TIMEOUT = 10000;
 
 /**
- * Singleton http client instance.
- * Initialized lazily on first access.
+ * Singleton instance of the HTTP client.
+ * Initialized on first call to getHttpClient().
  */
 let httpClient: AxiosInstance | null = null;
 
 /**
- * Configuration options for the HTTP client
+ * Configuration options for creating an HTTP client instance.
  */
 export interface HttpClientConfig {
+  /** Base URL for all API requests */
   baseURL: string;
+  /** Request timeout in milliseconds (defaults to DEFAULT_REQUEST_TIMEOUT) */
   timeout?: number;
+  /** Authentication token to be included in the Authorization header */
   authToken: string;
+  /** Additional custom headers to include with every request */
   headers?: Record<string, string>;
+  /** If true, disables TLS certificate validation (use only in development) */
   insecureTLS?: boolean;
 }
 
+/**
+ * Creates an HTTPS agent with optional insecure TLS settings.
+ *
+ * @param opts - Configuration options
+ * @param opts.insecureTLS - If true, creates an agent that doesn't validate certificates
+ * @returns HTTPS agent instance or undefined if not needed
+ * @internal
+ */
 function buildHttpsAgent(opts: { insecureTLS?: boolean }) {
   if (opts.insecureTLS) {
     return new https.Agent({ rejectUnauthorized: false });
@@ -38,10 +47,14 @@ function buildHttpsAgent(opts: { insecureTLS?: boolean }) {
 }
 
 /**
- * Maps backend HTTP errors to frontend-appropriate errors
+ * Maps backend Axios errors to frontend-friendly HttpError instances.
  *
- * @param error
- * @returns
+ * This function sanitizes error messages to prevent leaking sensitive information
+ * while preserving the original backend message for debugging purposes.
+ *
+ * @param error - Axios error from the backend request
+ * @returns Mapped HttpError with appropriate status code and user-friendly message
+ * @internal
  */
 function mapBackendErrorToFrontend(error: AxiosError): HttpError {
   const statusCode = error.response?.status || 0;
@@ -51,41 +64,43 @@ function mapBackendErrorToFrontend(error: AxiosError): HttpError {
     case 401:
     case 403:
       // Don't leak authentication/authorization details
-      return new HttpError(400, 'Invalid or expired token', { backendMessage });
+      return new HttpError(HttpStatusCode.BadRequest, 'Invalid or expired token', { backendMessage });
 
     case 404:
-      return new HttpError(400, 'Resource not found', { backendMessage });
+      return new HttpError(HttpStatusCode.BadRequest, 'Resource not found', { backendMessage });
 
     case 429:
-      return new HttpError(429, 'Too many requests', { backendMessage });
+      return new HttpError(HttpStatusCode.TooManyRequests, 'Too many requests', { backendMessage });
 
     case 500:
     case 502:
     case 503:
-      return new HttpError(503, 'Service temporarily unavailable', { backendMessage });
+      return new HttpError(HttpStatusCode.ServiceUnavailable, 'Service temporarily unavailable', { backendMessage });
 
     default:
       // Generic error for all other backend errors
-      return new HttpError(500, 'Service error', { backendMessage });
+      return new HttpError(HttpStatusCode.InternalServerError, 'Service error', { backendMessage });
   }
 }
 
 /**
- * Creates a configured axios instance for http communication.
+ * Creates a configured Axios HTTP client instance with interceptors for logging and error handling.
  *
- * Features:
+ * The client includes:
+ * - Automatic Bearer token authentication
  * - Request/response logging
- * - Automatic error transformation
- * - Configurable timeout and headers
+ * - Consistent error mapping and handling
+ * - Optional insecure TLS for development environments
  *
- * @param config - Client configuration options
- * @returns Configured axios instance
+ * @param config - HTTP client configuration options
+ * @returns Configured Axios instance ready for making API requests
  *
  * @example
  * ```typescript
  * const client = createHttpClient({
- *   baseURL: process.env.AGENTICFLO_BASE_URL!,
- *   timeout: DEFAULT_REQUEST_TIMEOUT
+ *   baseURL: 'https://api.example.com',
+ *   authToken: 'your-token-here',
+ *   timeout: 5000
  * });
  * ```
  */
@@ -149,15 +164,23 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
 }
 
 /**
- * Gets or creates the http client instance.
+ * Returns a singleton HTTP client instance configured from environment variables.
  *
- * @returns Configured axios instance for Core API
- * @throws Error if AGENTICFLO_BASE_URL environment variable is not set
+ * Creates the client on first call and caches it for subsequent calls.
+ * Configuration is loaded from the following environment variables:
+ * - `AGENTICFLO_BASE_URL` (required): Base URL for API requests
+ * - `AGENTICFLO_BACKPLANE_TOKEN` (required): Authentication token
+ * - `AGENTICFLO_REQUEST_TIMEOUT` (optional): Request timeout in milliseconds
+ * - `AGENTICFLO_TLS_INSECURE` (optional): Set to '1', 'true', or 'yes' to disable TLS validation
+ * - `IS_OFFLINE` (optional): Must also be truthy for insecure TLS to be enabled
+ *
+ * @returns Singleton Axios instance configured for the application
+ * @throws Error if required environment variables (AGENTICFLO_BASE_URL or AGENTICFLO_BACKPLANE_TOKEN) are not set
  *
  * @example
  * ```typescript
  * const client = getHttpClient();
- * const response = await client.get('/shareable/validate/token123');
+ * const response = await client.get('/api/endpoint');
  * ```
  */
 export function getHttpClient(): AxiosInstance {

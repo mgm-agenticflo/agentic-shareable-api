@@ -1,70 +1,123 @@
-import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
-import { getWebsocketEndpoint, isWebsocket } from './lib';
 import { APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { ParsedRequestContext } from '../types/request-types';
+import { PublicError } from '../types/response-types';
+import { HttpStatusCode } from 'axios';
 
 /**
  * Creates a successful API Gateway response with standardized JSON structure.
  *
- * @param result - The data to return in the response body
- * @param statusCode - HTTP status code (default: 200)
+ * Returns a response with `success: true` and the provided result data in the body.
+ * Always includes Content-Type header set to application/json.
+ *
+ * @param result - The data to return in the response body (will be JSON stringified)
+ * @param statusCode - HTTP status code (defaults to 200 OK)
  * @returns API Gateway structured response with success flag and result data
  *
  * @example
  * ```typescript
- * return success({ userId: 123, name: 'Alice' }, 200);
- * // => { statusCode: 200, body: '{"success":true,"result":{...}}', headers: {...} }
+ * return success({ userId: 123, name: 'Alice' });
+ * // => {
+ * //   statusCode: 200,
+ * //   body: '{"success":true,"result":{"userId":123,"name":"Alice"}}',
+ * //   headers: { 'Content-Type': 'application/json' }
+ * // }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * return success({ items: [] }, HttpStatusCode.Created);
+ * // => { statusCode: 201, body: '{"success":true,"result":{"items":[]}}', ... }
  * ```
  */
-export const success = (result: unknown, statusCode = 200): APIGatewayProxyStructuredResultV2 => ({
+export const success = (result: unknown, statusCode = HttpStatusCode.Ok): APIGatewayProxyStructuredResultV2 => ({
   statusCode,
-  body: JSON.stringify({ success: true, result }),
-  headers: { 'Content-Type': 'application/json' }
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ success: true, result })
 });
 
 /**
  * Creates an error API Gateway response with standardized JSON structure.
  *
- * @param message - Human-readable error message
- * @param statusCode - HTTP status code (default: 500)
- * @param code - Optional error code for programmatic handling (e.g., 'INVALID_INPUT')
+ * Returns a response with `success: false` and error details in the body.
+ * The error parameter is parsed to extract message and code information.
+ * Always includes Content-Type header set to application/json.
+ *
+ * @param message - Human-readable error message to display to the client
+ * @param statusCode - HTTP status code (defaults to 500 Internal Server Error)
+ * @param error - Optional error object or data to be parsed for additional details
  * @returns API Gateway structured response with success flag and error details
  *
  * @example
  * ```typescript
- * return failure('User not found', 404, 'USER_NOT_FOUND');
- * // => { statusCode: 404, body: '{"success":false,"error":{...}}', headers: {...} }
+ * return failure('User not found', HttpStatusCode.NotFound);
+ * // => {
+ * //   statusCode: 404,
+ * //   body: '{"success":false,"message":"User not found","error":{"message":"An error occurred"}}',
+ * //   headers: { 'Content-Type': 'application/json' }
+ * // }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * const err = new Error('Database connection failed');
+ * return failure('Cannot retrieve data', HttpStatusCode.ServiceUnavailable, err);
+ * // => {
+ * //   statusCode: 503,
+ * //   body: '{"success":false,"message":"Cannot retrieve data","error":{...}}',
+ * //   headers: { 'Content-Type': 'application/json' }
+ * // }
  * ```
  */
-export const failure = (message: string, statusCode = 500, code?: string): APIGatewayProxyStructuredResultV2 => ({
+export const failure = (
+  message: string,
+  statusCode = HttpStatusCode.InternalServerError,
+  error?: unknown
+): APIGatewayProxyStructuredResultV2 => ({
   statusCode,
+  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     success: false,
-    error: { message, code }
-  }),
-  headers: { 'Content-Type': 'application/json' }
+    message,
+    error: parseError(error)
+  })
 });
 
 /**
- * Extracts error details from a result payload.
+ * Parses and normalizes error data into a consistent PublicError format.
  *
- * Handles various error formats:
- * - String errors: `"Something went wrong"`
- * - Object with error property: `{ error: "Something went wrong" }`
- * - Object with message/code: `{ error: { message: "...", code: "..." } }`
+ * Handles various error input formats and extracts message and code properties:
+ * - Direct string: `"Something went wrong"` → `{ message: "Something went wrong" }`
+ * - Object with error property: `{ error: "text" }` → extracts the error value
+ * - Error object with message: `{ message: "...", code: "..." }` → extracts both
+ * - Any other format: `{ message: "An error occurred" }` (fallback)
  *
- * @param result - The result payload that may contain error information
- * @returns Normalized error object with message and optional code
+ * @param result - The error data to parse (can be string, Error object, or any structure)
+ * @returns Normalized PublicError object with message and optional code
+ *
+ * @example
+ * ```typescript
+ * parseError('Invalid input');
+ * // => { message: 'Invalid input', code: undefined }
+ * ```
  *
  * @example
  * ```typescript
  * parseError({ error: { message: 'Invalid token', code: 'AUTH_FAILED' } });
  * // => { message: 'Invalid token', code: 'AUTH_FAILED' }
  * ```
+ *
+ * @example
+ * ```typescript
+ * parseError(new Error('Database error'));
+ * // => { message: 'Database error', code: undefined }
+ * ```
+ *
+ * @internal
  */
-function parseError(result: unknown): { message: string; code?: string } {
+function parseError(result: unknown): PublicError {
+  // Extract error data from nested error property if present
   const errorData = result && typeof result === 'object' && 'error' in result ? result.error : result;
 
+  // Extract message from various formats
   const message =
     typeof errorData === 'string'
       ? errorData
@@ -72,98 +125,8 @@ function parseError(result: unknown): { message: string; code?: string } {
         ? String(errorData.message)
         : 'An error occurred';
 
+  // Extract optional error code
   const code = errorData && typeof errorData === 'object' && 'code' in errorData ? String(errorData.code) : undefined;
 
   return { message, code };
-}
-
-/**
- * Formats a response payload for WebSocket or HTTP based on status code.
- *
- * Status codes >= 400 are treated as errors and formatted with error structure.
- * Status codes < 400 are treated as success and formatted with result structure.
- *
- * @param statusCode - HTTP-like status code
- * @param result - The data or error to include in the payload
- * @returns Formatted payload object with success flag and appropriate data structure
- *
- * @example
- * ```typescript
- * formatWebsocketPayload(200, { userId: 123 });
- * // => { success: true, result: { userId: 123 }, statusCode: 200 }
- *
- * formatWebsocketPayload(404, { error: 'Not found' });
- * // => { success: false, error: { message: 'Not found', statusCode: 404 } }
- * ```
- */
-function formatWebsocketPayload(statusCode: number, result: unknown) {
-  const isError = statusCode >= 400;
-
-  if (isError) {
-    const { message, code } = parseError(result);
-    return { success: false, error: { message, code, statusCode } };
-  }
-
-  return { success: true, result: result ?? {}, statusCode };
-}
-
-/**
- * Sends a unified response for both HTTP and WebSocket Lambda invocations.
- *
- * **WebSocket behavior:**
- * - Uses API Gateway Management API to post a JSON payload to the connected client
- * - Payload includes `success` flag, data/error, and statusCode
- * - Returns `{ statusCode: 200 }` acknowledgment to Lambda
- *
- * **HTTP behavior:**
- * - Returns standard API Gateway structured JSON response
- * - Status codes >= 400 use error format, < 400 use success format
- *
- * @param context - Parsed request context (includes connection type, IDs, domain, etc.)
- * @param statusCode - HTTP-like status code to indicate success/failure
- * @param result - Optional payload data or error information
- * @returns API Gateway-compatible structured response
- *
- * @throws Will return a 400 failure response if context is invalid
- *
- * @example
- * ```typescript
- * // Success response
- * await respond(context, 200, { data: 'Hello' });
- *
- * // Error response
- * await respond(context, 404, { error: 'Resource not found' });
- * ```
- */
-export async function respond(
-  context: ParsedRequestContext | null,
-  statusCode: number,
-  result?: unknown
-): Promise<APIGatewayProxyStructuredResultV2> {
-  if (!context) {
-    return failure('Invalid context', 400, 'INVALID_CONTEXT');
-  }
-
-  // WebSocket: push message via Management API
-  if (isWebsocket(context)) {
-    const client = new ApiGatewayManagementApiClient({ endpoint: getWebsocketEndpoint(context) });
-    const payload = formatWebsocketPayload(statusCode, result);
-
-    await client.send(
-      new PostToConnectionCommand({
-        ConnectionId: context.connectionId,
-        Data: Buffer.from(JSON.stringify(payload))
-      })
-    );
-
-    return { statusCode: 200 };
-  }
-
-  // HTTP: success or failure based on status code
-  if (statusCode >= 400) {
-    const { message, code } = parseError(result);
-    return failure(message, statusCode, code);
-  }
-
-  return success(result ?? {}, statusCode);
 }

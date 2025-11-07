@@ -1,60 +1,89 @@
 import { Middleware } from '../types/handler-types';
 import { HttpError } from '../errors/http-error';
 import { tokenService } from '../services/transient-token';
-import { ParsedRequestContext } from '../types/request-types';
+import { getHeader } from '../utils/lib';
+import { RequestEvent } from '../types/request-types';
+import { HttpStatusCode } from 'axios';
 
 /**
- * JWT authentication middleware.
+ * Middleware that validates JWT tokens from the Authorization header.
  *
- * Extracts and verifies JWT from Authorization header,
- * adds decoded payload to context.user
+ * This middleware:
+ * 1. Extracts the JWT token from the Authorization header (must be in Bearer token format)
+ * 2. Verifies the token using the token service
+ * 3. Adds the decoded ShareableContext to the request event
+ * 4. Passes the enhanced event to the next middleware/handler
+ *
+ * The Authorization header must follow the format: `Bearer <token>`
+ *
+ * @param event - The incoming request event containing HTTP context and headers
+ * @param next - The next middleware or handler function in the chain
+ * @returns Result from the next handler with the enhanced event containing shareableContext
+ *
+ * @throws {HttpError} 401 Unauthorized - If Authorization header is missing or invalid
+ * @throws {HttpError} 401 Unauthorized - If Authorization format is not "Bearer <token>"
+ * @throws {HttpError} 422 Unprocessable Entity - If token verification fails
  *
  * @example
  * ```typescript
- * const actionsMap: Record<string, HandlerFn> = {
- *   getResource: applyMiddleware(resourceModule.get, [jwtMiddleware]),
- *   execute: applyMiddleware(actionModule.execute, [jwtMiddleware])
+ * // Apply middleware to a route
+ *
+ * // After middleware, access the shareable context
+ * const handler = async (event: RequestEvent) => {
+ *   const context = event.shareableContext;
+ *   console.log('Shareable Token:', context.token);
  * };
  * ```
+ *
+ * @example
+ * ```typescript
+ * // Making a request with proper authorization
+ * fetch('/api/endpoint', {
+ *   headers: {
+ *     'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+ *   }
+ * });
+ * ```
  */
-export const jwtMiddleware: Middleware = async (event, context, next) => {
-  const headers = (event as any).headers;
-
-  if (!headers) {
-    throw new HttpError(401, 'Missing authorization token');
-  }
-
-  const authHeader = headers['Authorization'] || headers['authorization'];
-
-  if (!authHeader) {
-    throw new HttpError(401, 'Missing authorization token');
-  }
-
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-
-  if (!token) {
-    throw new HttpError(401, 'Invalid authorization header format');
-  }
-
+export const jwtMiddleware: Middleware = async (event: RequestEvent, next) => {
   try {
-    const shareableContext = tokenService.verify(token);
-
-    // Validate that the requested resource is in the allowed resources
-    if (context.resource && shareableContext.channels && !shareableContext.channels.includes(context.resource)) {
-      throw new HttpError(403, `Access denied to resource '${context.resource}'`);
+    const headers = event.httpContext?.headers;
+    if (!headers) {
+      throw new HttpError(HttpStatusCode.Unauthorized, 'Invalid Authorization');
     }
 
-    // Add shareable context to request context
-    const enhancedContext: ParsedRequestContext = {
-      ...context,
-      shareableContext
-    } as ParsedRequestContext;
+    const authHeader = getHeader(headers, 'Authorization');
+    if (!authHeader) {
+      throw new HttpError(HttpStatusCode.Unauthorized, 'Invalid Authorization');
+    }
 
-    return next(event, enhancedContext);
+    // Must be Bearer token format
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+    if (!match) throw new HttpError(HttpStatusCode.Unauthorized, 'Invalid Authorization format');
+
+    const token = match[1].trim();
+    if (!token) {
+      throw new HttpError(HttpStatusCode.Unauthorized, 'Invalid Authorization');
+    }
+
+    const shareableContext = tokenService.verify(token);
+    if (!shareableContext) {
+      throw new HttpError(HttpStatusCode.Unauthorized, 'Invalid Authorization');
+    }
+
+    // Add shareable context to request context for downstream handlers
+    const enhancedEvent: RequestEvent = {
+      ...event,
+      shareableContext
+    } as RequestEvent;
+
+    return next(enhancedEvent);
   } catch (err) {
+    // Re-throw HttpErrors as-is
     if (err instanceof HttpError) {
       throw err;
     }
-    throw new HttpError(401, 'Invalid or expired token');
+    // Otherwise tell we have no idea
+    throw new HttpError(HttpStatusCode.UnprocessableEntity, 'Can not evaluate authorization');
   }
 };

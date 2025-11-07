@@ -23,7 +23,7 @@ custom:
   serverless-offline:
     host: 127.0.0.1
     httpPort: ${env:OFFLINE_HTTP_PORT, 6000}
-    websocketPort: ${env:OFFLINE_WS_PORT, 6001}
+    #websocketPort: ${env:OFFLINE_WS_PORT, 6001}
 
   logLevel:
     dev: 'debug'
@@ -56,29 +56,39 @@ provider:
     AGENTICFLO_BACKPLANE_TOKEN: ${env:AGENTICFLO_BACKPLANE_TOKEN}
     AGENTICFLO_TLS_INSECURE: ${env:AGENTICFLO_TLS_INSECURE}
     CLIENT_AUTH_SECRET: ${env:CLIENT_AUTH_SECRET}
+    DEFAULT_TRANSIENT_TTL: ${env:DEFAULT_TRANSIENT_TTL}
     IS_OFFLINE: ${env:IS_OFFLINE, 'false'}
     LOG_LEVEL: ${self:custom.logLevel.${sls:stage}, 'info'}
     STAGE: ${sls:stage, 'dev'}
     OFFLINE_HTTP_PORT: ${env:OFFLINE_HTTP_PORT, 6000}
-    OFFLINE_WS_PORT: ${env:OFFLINE_WS_PORT, 6001}
+    #OFFLINE_WS_PORT: ${env:OFFLINE_WS_PORT, 6001}
 
 functions:
-  webchatRouter:
-    handler: src/router.handler
+  httpRouter:
+    handler: src/http-router.handler
     timeout: 60
     events:
       # HTTP API
       - httpApi:
-          path: /resource/{token}
-          method: GET
+          path: /resource/get # To obtain shared resource details
+          method: POST
       - httpApi:
-          path: /{resource}/{action+}
-          method: any
+          path: /webchat/get-history # To get webchat initialization: history, pending tasks...
+          method: POST
+      - httpApi:
+          path: /webchat/send # To post webchat actions, send message, finish conversation, feedback...
+          method: POST
+      - httpApi:
+          path: /upload/get-link # To get an upload link
+          method: POST
+      - httpApi:
+          path: /upload/confirm # To confirm an uploaded file
+          method: POST
 
       # WebSocket
-      - websocket:
-          route: $connect
-      - websocket:
-          route: $disconnect
-      - websocket:
-          route: $default
+      #- websocket:
+      #    route: $connect
+      #- websocket:
+      #    route: $disconnect
+      #- websocket:
+      #    route: $default

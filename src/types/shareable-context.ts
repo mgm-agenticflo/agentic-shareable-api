@@ -3,5 +3,4 @@ export type ShareableContext = {
   type: string;
   id: string;
   channels?: string[];
-  [key: string]: any;
 };

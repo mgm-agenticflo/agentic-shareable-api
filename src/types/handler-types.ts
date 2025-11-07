@@ -1,18 +1,11 @@
-import { ParsedRequestContext, RequestEvent } from './request-types';
+import { RequestEvent } from './request-types';
 
-export type HttpResult = { statusCode?: number; body?: unknown };
-
-export type HandlerFn = (event: RequestEvent, context: ParsedRequestContext) => Promise<HttpResult> | HttpResult;
-
-// WebSocket doesn't need body in the response, but post to connection
-export type WebSocketResult = {
+export type HandlerResponse<T = unknown> = {
+  result: T;
   statusCode?: number;
+  headers?: Record<string, string>;
 };
 
-export type HandlerResponse = HttpResult | WebSocketResult;
-
-export type Middleware = (
-  event: RequestEvent,
-  context: ParsedRequestContext,
-  next: HandlerFn
-) => Promise<HandlerResponse>;
+export type HandlerFn = (event: RequestEvent) => Promise<HandlerResponse>;
+export type NextFn = (event: RequestEvent) => Promise<HandlerResponse>;
+export type Middleware = (event: RequestEvent, next: NextFn) => Promise<HandlerResponse>;
