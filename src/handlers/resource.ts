@@ -5,6 +5,24 @@ import { tokenService, TransientTokenService } from '../services/transient-token
 import { ResourceRequest, WithHttp } from '../types/request-types';
 
 export const CreateResourceModule = (coreApi: CoreApiService, tokenService: TransientTokenService) => ({
+  /**
+   * Retrieves a shareable resource configuration and generates an authentication token.
+   *
+   * This endpoint validates the provided resource token, fetches the associated configuration,
+   * and creates a transient client authentication token for accessing the resource.
+   *
+   * @param event - The HTTP event containing the parsed request body
+   * @returns An object containing:
+   *   - config: The shareable resource configuration
+   *   - authToken: A transient token for client authentication
+   *
+   * @throws {HttpError} 400 - If token is missing from the request
+   * @throws {HttpError} 400 - If the token is invalid or expired
+   *
+   * @example
+   * // Request body: { token: "abc123" }
+   * // Returns: { result: { config: {...}, authToken: "xyz789" } }
+   */
   get: async (event: WithHttp) => {
     const { token } = event.parsedBody as ResourceRequest;
 
@@ -12,13 +30,13 @@ export const CreateResourceModule = (coreApi: CoreApiService, tokenService: Tran
       throw new HttpError(HttpStatusCode.BadRequest, 'Token is required');
     }
 
-    // Get resource configuration (includes validation)
+    // Fetch and validate the resource configuration
     const shareable = await coreApi.getConfiguration(token);
     if (!shareable) {
       throw new HttpError(HttpStatusCode.BadRequest, 'Invalid or expired resource');
     }
 
-    // Generate client transient token
+    // Generate a transient authentication token for the client
     const authToken = tokenService.generate(shareable);
 
     const result = {
