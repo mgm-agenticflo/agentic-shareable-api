@@ -4,19 +4,14 @@
  * Provides JSON-formatted logs that are easily queryable in CloudWatch Insights.
  * Works both in serverless-offline and deployed environments.
  */
-/* eslint-disable no-console */
+
+import { isTrue } from './lib';
 
 /** Configured log level from environment (default: 'info') */
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 /** Current deployment stage (default: 'dev') */
 const STAGE = process.env.STAGE || 'dev';
-
-/** Whether running in serverless-offline mode */
-const IS_OFFLINE = process.env.IS_OFFLINE === 'true';
-
-/** Whether running in production (not offline and stage is 'prod') */
-const IS_PROD = STAGE === 'prod' && !IS_OFFLINE;
 
 /**
  * Numeric log levels for filtering.
@@ -63,7 +58,7 @@ function structuredLog(level: string, message: string, context?: Record<string, 
     ...context
   };
   // Pretty print in offline mode
-  if (IS_OFFLINE) {
+  if (isTrue(process.env.IS_OFFLINE)) {
     console.log(`[${logEntry.level}] ${logEntry.message}`, context ? context : '');
   } else {
     console.log(JSON.stringify(logEntry));
@@ -153,7 +148,7 @@ export const info = (message: string, context?: Record<string, unknown>): void =
  * ```
  */
 export const debug = (message: string, context?: Record<string, unknown>): void => {
-  if (IS_PROD) return; // Never log debug in production
+  if (STAGE === 'prod') return; // Never log debug in production
   structuredLog('debug', message, context);
 };
 
@@ -176,4 +171,3 @@ const logger = {
 };
 
 export default logger;
-/* eslint-enable no-console */

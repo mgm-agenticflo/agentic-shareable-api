@@ -1,5 +1,12 @@
-import { APIGatewayProxyEventHeaders, APIGatewayProxyEventV2 } from 'aws-lambda';
+import { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { RequestEvent } from '../types/request-types';
+
+export function isTrue(mystery: string | undefined): boolean {
+  if (!mystery) {
+    return false;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(String(mystery).toLowerCase());
+}
 
 /**
  * Retrieves a header value from API Gateway event headers in a case-insensitive manner.
@@ -20,11 +27,11 @@ import { RequestEvent } from '../types/request-types';
  * const bearer = getHeader(headers, 'AUTHORIZATION'); // Also works
  * ```
  */
-export function getHeader(headers: APIGatewayProxyEventHeaders, name: string): string | undefined {
+export function getHeader(headers: Record<string, string | undefined>, name: string): string | undefined {
   if (!headers) {
     return;
   }
-  const h = headers as Record<string, string | undefined>;
+  const h = headers;
   const target = name.toLowerCase();
   for (const k in h) {
     if (k.toLowerCase() === target) return h[k];

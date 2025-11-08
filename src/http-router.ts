@@ -1,15 +1,16 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { getErrorMessage, parseHttpEvent } from './utils/lib';
 import logger from './utils/logger';
-import { HttpError } from './errors/http-error';
+import { HttpCodedError } from './errors/http-error';
 import { jwtMiddleware } from './middlewares/jwt-guard';
 import { resourceModule } from './handlers/resource';
 import { webchatModule } from './handlers/webchat';
 import { RequestEvent } from './types/request-types';
-import { HandlerFn, HandlerResponse, Middleware } from './types/handler-types';
+import { HandlerFn, Middleware } from './types/handler-types';
 import { HttpStatusCode } from 'axios';
 import { uploadModule } from './handlers/upload';
 import { failure, success } from './utils/response';
+import { HandlerResponse } from './types/response-types';
 
 /**
  * Composes a handler function with a chain of middleware functions.
@@ -176,7 +177,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     return success(response.result || response);
   } catch (err: any) {
     const msg = getErrorMessage(err);
-    const statusCode = err instanceof HttpError ? err.statusCode : HttpStatusCode.InternalServerError;
+    const statusCode = err instanceof HttpCodedError ? err.statusCode : HttpStatusCode.InternalServerError;
     const { requestContext, pathParameters, queryStringParameters } = requestEvent.httpContext!;
     logger.error(msg, err, {
       statusCode,
@@ -184,6 +185,6 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       pathParameters,
       queryStringParameters
     });
-    return failure(msg, statusCode, err);
+    return failure(msg, statusCode, err as Error);
   }
 };

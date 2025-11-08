@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, HttpStatusCode } from 'axios';
 import logger from '../utils/logger';
-import { HttpError } from '../errors/http-error';
-import { getErrorMessage } from '../utils/lib';
+import { HttpCodedError } from '../errors/http-error';
+import { getErrorMessage, isTrue } from '../utils/lib';
 import https from 'node:https';
 
 /**
@@ -47,16 +47,16 @@ function buildHttpsAgent(opts: { insecureTLS?: boolean }) {
 }
 
 /**
- * Maps backend Axios errors to frontend-friendly HttpError instances.
+ * Maps backend Axios errors to frontend-friendly HttpCodedError instances.
  *
  * This function sanitizes error messages to prevent leaking sensitive information
  * while preserving the original backend message for debugging purposes.
  *
  * @param error - Axios error from the backend request
- * @returns Mapped HttpError with appropriate status code and user-friendly message
+ * @returns Mapped HttpCodedError with appropriate status code and user-friendly message
  * @internal
  */
-function mapBackendErrorToFrontend(error: AxiosError): HttpError {
+function mapBackendErrorToFrontend(error: AxiosError): HttpCodedError {
   const statusCode = error.response?.status || 0;
   const backendMessage = getErrorMessage(error);
 
@@ -64,22 +64,24 @@ function mapBackendErrorToFrontend(error: AxiosError): HttpError {
     case 401:
     case 403:
       // Don't leak authentication/authorization details
-      return new HttpError(HttpStatusCode.BadRequest, 'Invalid or expired token', { backendMessage });
+      return new HttpCodedError(HttpStatusCode.BadRequest, 'Invalid or expired token', { backendMessage });
 
     case 404:
-      return new HttpError(HttpStatusCode.BadRequest, 'Resource not found', { backendMessage });
+      return new HttpCodedError(HttpStatusCode.BadRequest, 'Resource not found', { backendMessage });
 
     case 429:
-      return new HttpError(HttpStatusCode.TooManyRequests, 'Too many requests', { backendMessage });
+      return new HttpCodedError(HttpStatusCode.TooManyRequests, 'Too many requests', { backendMessage });
 
     case 500:
     case 502:
     case 503:
-      return new HttpError(HttpStatusCode.ServiceUnavailable, 'Service temporarily unavailable', { backendMessage });
+      return new HttpCodedError(HttpStatusCode.ServiceUnavailable, 'Service temporarily unavailable', {
+        backendMessage
+      });
 
     default:
       // Generic error for all other backend errors
-      return new HttpError(HttpStatusCode.InternalServerError, 'Service error', { backendMessage });
+      return new HttpCodedError(HttpStatusCode.InternalServerError, 'Service error', { backendMessage });
   }
 }
 
@@ -198,9 +200,7 @@ export function getHttpClient(): AxiosInstance {
       throw new Error('AGENTICFLO_BACKPLANE_TOKEN environment variable is not set');
     }
 
-    const insecureTLS =
-      ['1', 'true', 'yes'].includes(String(process.env.AGENTICFLO_TLS_INSECURE).toLowerCase()) &&
-      ['1', 'true', 'yes'].includes(String(process.env.IS_OFFLINE).toLowerCase());
+    const insecureTLS = isTrue(process.env.AGENTICFLO_TLS_INSECURE) && isTrue(process.env.IS_OFFLINE);
 
     httpClient = createHttpClient({
       baseURL,

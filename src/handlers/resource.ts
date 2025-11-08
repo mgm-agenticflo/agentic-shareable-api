@@ -1,5 +1,5 @@
 import { HttpStatusCode } from 'axios';
-import { HttpError } from '../errors/http-error';
+import { HttpCodedError } from '../errors/http-error';
 import { coreApi, CoreApiService } from '../services/core-api';
 import { tokenService, TransientTokenService } from '../services/transient-token';
 import { ResourceRequest, WithHttp } from '../types/request-types';
@@ -16,8 +16,8 @@ export const CreateResourceModule = (coreApi: CoreApiService, tokenService: Tran
    *   - config: The shareable resource configuration
    *   - authToken: A transient token for client authentication
    *
-   * @throws {HttpError} 400 - If token is missing from the request
-   * @throws {HttpError} 400 - If the token is invalid or expired
+   * @throws {HttpCodedError} 400 - If token is missing from the request
+   * @throws {HttpCodedError} 400 - If the token is invalid or expired
    *
    * @example
    * // Request body: { token: "abc123" }
@@ -27,13 +27,13 @@ export const CreateResourceModule = (coreApi: CoreApiService, tokenService: Tran
     const { token } = event.parsedBody as ResourceRequest;
 
     if (!token) {
-      throw new HttpError(HttpStatusCode.BadRequest, 'Token is required');
+      throw new HttpCodedError(HttpStatusCode.BadRequest, 'Token is required');
     }
 
     // Fetch and validate the resource configuration
     const shareable = await coreApi.getConfiguration(token);
     if (!shareable) {
-      throw new HttpError(HttpStatusCode.BadRequest, 'Invalid or expired resource');
+      throw new HttpCodedError(HttpStatusCode.BadRequest, 'Invalid or expired resource');
     }
 
     // Generate a transient authentication token for the client

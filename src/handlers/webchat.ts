@@ -1,5 +1,5 @@
 import { HttpStatusCode } from 'axios';
-import { HttpError } from '../errors/http-error';
+import { HttpCodedError } from '../errors/http-error';
 import { coreApi, CoreApiService } from '../services/core-api';
 import { WebchatMessageRequest, WebchatRequestPayload, WithShareable } from '../types/request-types';
 
@@ -14,7 +14,7 @@ const CreateWebChatModule = (coreApi: CoreApiService) => ({
    * @param event - The HTTP event containing the shareable context, session ID, and message payload
    * @returns An object containing the sent message details and any response
    *
-   * @throws {HttpError} 400 - If the message content is missing or empty
+   * @throws {HttpCodedError} 400 - If the message content is missing or empty
    *
    * @example
    * // Request body: { sessionId: "sess_123", message: "Hello!" }
@@ -30,7 +30,7 @@ const CreateWebChatModule = (coreApi: CoreApiService) => ({
     const { sessionId, ...payload } = event.parsedBody as WebchatMessageRequest;
 
     if (!payload || !payload.message) {
-      throw new HttpError(HttpStatusCode.BadRequest, 'message is required');
+      throw new HttpCodedError(HttpStatusCode.BadRequest, 'message is required');
     }
 
     const result = await coreApi.sendWebchatMessage(sessionId, payload, event.shareableContext.token);
@@ -46,7 +46,7 @@ const CreateWebChatModule = (coreApi: CoreApiService) => ({
    * @param event - The HTTP event containing the shareable context and session ID
    * @returns An object containing the array of messages in chronological order
    *
-   * @throws {HttpError} 400 - If the session ID is missing
+   * @throws {HttpCodedError} 400 - If the session ID is missing
    *
    * @example
    * // Request body: { sessionId: "sess_123" }
@@ -56,7 +56,7 @@ const CreateWebChatModule = (coreApi: CoreApiService) => ({
     const { sessionId } = event.parsedBody as WebchatRequestPayload;
 
     if (!sessionId) {
-      throw new HttpError(HttpStatusCode.BadRequest, 'session id is required');
+      throw new HttpCodedError(HttpStatusCode.BadRequest, 'session id is required');
     }
 
     const result = await coreApi.getWebchatHistory(sessionId, event.shareableContext.token);

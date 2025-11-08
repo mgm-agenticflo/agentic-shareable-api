@@ -59,7 +59,6 @@ export const CreateCoreApiService = (client: AxiosInstance) => ({
     const headers = {
       'x-shareable-token': shareableToken
     };
-    logger.info('Sending webchat message', { sessionId });
     const response = await client.post<APIResponseType<ChatMessage>>(`/webchat/${sessionId}`, payload, { headers });
     if (!response.data.success) {
       throw new Error(`Failed to send webchat message: ${response.data.message}`);
@@ -79,7 +78,6 @@ export const CreateCoreApiService = (client: AxiosInstance) => ({
     const headers = {
       'x-shareable-token': shareableToken
     };
-    logger.info('Fetching webchat history', { sessionId });
     const response = await client.get<APIResponseType<WebChatHistory>>(`/webchat/history/${sessionId}`, { headers });
     if (!response.data.success) {
       throw new Error(`Failed to fetch webchat history: ${response.data.message}`);

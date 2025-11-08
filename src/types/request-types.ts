@@ -1,6 +1,5 @@
 import { APIGatewayProxyEventV2, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
 import { ShareableContext } from './shareable-context';
-import { TransientContext } from './transient-context';
 
 export type TargetResource = {
   method: string;
@@ -8,17 +7,17 @@ export type TargetResource = {
   action?: string;
 };
 
-export type RequestEvent = {
+export type RequestEvent<T = unknown> = {
   httpContext?: APIGatewayProxyEventV2;
   websocketContext?: APIGatewayProxyWebsocketEventV2;
   shareableContext?: ShareableContext;
-  transientContext?: TransientContext;
-  parsedBody: unknown;
+  parsedBody: T;
   targetResource: TargetResource;
 };
 
-export type WithShareable = RequestEvent & { shareableContext: ShareableContext };
-export type WithHttp = RequestEvent & { httpContext: APIGatewayProxyEventV2 };
+export type WithShareable<T = unknown> = RequestEvent<T> & { shareableContext: ShareableContext };
+export type WithHttp<T = unknown> = RequestEvent<T> & { httpContext: APIGatewayProxyEventV2 };
+export type WithWebSocket<T = unknown> = RequestEvent<T> & { websocketContext: APIGatewayProxyWebsocketEventV2 };
 
 export type WebchatRequestPayload = {
   sessionId: string;
@@ -31,4 +30,9 @@ export type WebchatMessageRequest = WebchatRequestPayload & {
 
 export type ResourceRequest = {
   token: string;
+};
+
+export type WebSocketMessage = {
+  command: string; // Format: "resource:action" (e.g., "webchat:send")
+  [key: string]: unknown;
 };

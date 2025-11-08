@@ -1,6 +1,7 @@
 import { APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { PublicError } from '../types/response-types';
+import { PublicError, WebsocketResponse } from '../types/response-types';
 import { HttpStatusCode } from 'axios';
+import { getErrorMessage } from './lib';
 
 /**
  * Creates a successful API Gateway response with standardized JSON structure.
@@ -28,10 +29,10 @@ import { HttpStatusCode } from 'axios';
  * // => { statusCode: 201, body: '{"success":true,"result":{"items":[]}}', ... }
  * ```
  */
-export const success = (result: unknown, statusCode = HttpStatusCode.Ok): APIGatewayProxyStructuredResultV2 => ({
+export const success = (result?: unknown, statusCode = HttpStatusCode.Ok): APIGatewayProxyStructuredResultV2 => ({
   statusCode,
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ success: true, result })
+  body: JSON.stringify({ success: true, result: result || 'Ok' })
 });
 
 /**
@@ -70,16 +71,19 @@ export const success = (result: unknown, statusCode = HttpStatusCode.Ok): APIGat
 export const failure = (
   message: string,
   statusCode = HttpStatusCode.InternalServerError,
-  error?: unknown
-): APIGatewayProxyStructuredResultV2 => ({
-  statusCode,
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    success: false,
-    message,
-    error: parseError(error)
-  })
-});
+  error?: Error
+): APIGatewayProxyStructuredResultV2 => {
+  const response = {
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      success: false,
+      message,
+      error: parseError(error)
+    })
+  };
+  return response;
+};
 
 /**
  * Parses and normalizes error data into a consistent PublicError format.
@@ -113,20 +117,39 @@ export const failure = (
  *
  * @internal
  */
-function parseError(result: unknown): PublicError {
-  // Extract error data from nested error property if present
-  const errorData = result && typeof result === 'object' && 'error' in result ? result.error : result;
+function parseError(error: Error | undefined): PublicError {
+  if (!error) {
+    return {
+      message: 'Error',
+      code: 'UNKNOWN'
+    };
+  }
 
   // Extract message from various formats
-  const message =
-    typeof errorData === 'string'
-      ? errorData
-      : errorData && typeof errorData === 'object' && 'message' in errorData
-        ? String(errorData.message)
-        : 'An error occurred';
+  const message = getErrorMessage(error);
 
   // Extract optional error code
-  const code = errorData && typeof errorData === 'object' && 'code' in errorData ? String(errorData.code) : undefined;
+  const code = 'code' in error ? String(error.code) : undefined;
 
   return { message, code };
 }
+
+export const wsSuccess = (result?: unknown, statusCode = HttpStatusCode.Ok): WebsocketResponse => ({
+  statusCode,
+  success: true,
+  message: 'Ok',
+  result
+});
+
+export const wsFailure = (
+  message: string,
+  statusCode = HttpStatusCode.InternalServerError,
+  error?: Error
+): WebsocketResponse => {
+  return {
+    statusCode,
+    success: false,
+    message,
+    error: parseError(error)
+  };
+};

@@ -57,5 +57,5 @@ export const CreateTransientTokenService = (secret: string, defaultTransientTTL:
 export type TransientTokenService = ReturnType<typeof CreateTransientTokenService>;
 export const tokenService = CreateTransientTokenService(
   process.env.CLIENT_AUTH_SECRET || String(Math.random()),
-  process.env.DEFAULT_TRANSIENT_TTL || '10m'
+  process.env.DEFAULT_CLIENT_AUTH_TTL || '10m'
 );

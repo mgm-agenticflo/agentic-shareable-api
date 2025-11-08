@@ -1,10 +1,16 @@
-export class HttpError extends Error {
+export type ErrorDetails = {
+  code?: string;
+  backendMessage?: string;
+};
+
+export class HttpCodedError extends Error {
   constructor(
     public statusCode: number,
-    message: string,
-    public code?: unknown
+    public message: string,
+    public details?: unknown,
+    public shouldClose: boolean = false
   ) {
     super(message);
-    this.name = 'HttpError';
+    this.name = 'HttpCodedError';
   }
 }
