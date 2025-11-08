@@ -124,11 +124,6 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
   // Request interceptor for logging
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      logger.debug('HTTP Request', {
-        method: config.method?.toUpperCase(),
-        url: config.url,
-        baseURL: config.baseURL
-      });
       return config;
     },
     (error: AxiosError) => {
@@ -141,10 +136,6 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
   // Response interceptor for logging and error handling
   client.interceptors.response.use(
     (response) => {
-      logger.debug('HTTP Response', {
-        status: response.status,
-        url: response.config.url
-      });
       return response;
     },
     (error: AxiosError) => {

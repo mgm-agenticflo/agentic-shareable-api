@@ -83,7 +83,6 @@ export const CreateCoreApiService = (client: AxiosInstance) => ({
       throw new Error(`Failed to fetch webchat history: ${response.data.message}`);
     }
     const messages = response.data.result?.messages || [];
-    logger.debug('History retrieved', { messageCount: messages.length });
     return messages;
   },
 
@@ -111,7 +110,6 @@ export const CreateCoreApiService = (client: AxiosInstance) => ({
       logger.error('Unexpected empty response', response.data);
       return;
     }
-    logger.debug('Upload link retrieved', details);
     const { url, file } = details;
     return {
       url,
@@ -149,7 +147,6 @@ export const CreateCoreApiService = (client: AxiosInstance) => ({
       logger.error('Unexpected empty response', response.data);
       return;
     }
-    logger.debug('Upload link retrieved', details);
     return {
       name: details.name,
       mime: details.mime,
