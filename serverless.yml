@@ -6,7 +6,7 @@ plugins:
   - serverless-offline
 
 custom:
-  httpBasePath: ${env:HTTP_BASE_PATH, '/api'}
+  httpBasePath: ${env:HTTP_BASE_PATH, ''}
   esbuild:
     bundle: true
     external: []
