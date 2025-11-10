@@ -188,7 +188,11 @@ export function parseHttpEvent(event: APIGatewayProxyEventV2): RequestEvent {
     http: { path, method }
   } = event.requestContext;
 
-  const pathParts = path?.split('/').filter(Boolean) ?? [];
+  // Strip base path if configured
+  const basePath = process.env.HTTP_BASE_PATH || '';
+  const normalizedPath = basePath ? path.replace(new RegExp(`^${basePath}`), '') : path;
+
+  const pathParts = normalizedPath?.split('/').filter(Boolean) ?? [];
   const resource = pathParts[0] ?? undefined;
   const action = pathParts[1] ?? undefined;
   const targetResource = { method, resource, action };

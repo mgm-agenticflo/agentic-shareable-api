@@ -6,6 +6,7 @@ plugins:
   - serverless-offline
 
 custom:
+  httpBasePath: ${env:HTTP_BASE_PATH, '/api'}
   esbuild:
     bundle: true
     external: []
@@ -57,6 +58,7 @@ provider:
     AGENTICFLO_TLS_INSECURE: ${env:AGENTICFLO_TLS_INSECURE}
     CLIENT_AUTH_SECRET: ${env:CLIENT_AUTH_SECRET}
     DEFAULT_CLIENT_AUTH_TTL: ${env:DEFAULT_CLIENT_AUTH_TTL, '10m'}
+    HTTP_BASE_PATH: ${self:custom.httpBasePath}
     IS_OFFLINE: ${env:IS_OFFLINE, 'false'}
     STAGE: ${sls:stage, 'dev'}
     LOG_LEVEL: ${self:custom.logLevel.${sls:stage}, 'info'}
@@ -80,19 +82,19 @@ functions:
     events:
       # HTTP API
       - httpApi:
-          path: /resource/get # To obtain shared resource details
+          path: ${self:custom.httpBasePath}/resource/get # To obtain shared resource details
           method: POST
       - httpApi:
-          path: /webchat/get-history # To get webchat initialization: history, pending tasks...
+          path: ${self:custom.httpBasePath}/webchat/get-history # To get webchat initialization: history, pending tasks...
           method: POST
       - httpApi:
-          path: /webchat/send # To post webchat actions, send message, finish conversation, feedback...
+          path: ${self:custom.httpBasePath}/webchat/send # To post webchat actions, send message, finish conversation, feedback...
           method: POST
       - httpApi:
-          path: /upload/get-link # To get an upload link
+          path: ${self:custom.httpBasePath}/upload/get-link # To get an upload link
           method: POST
       - httpApi:
-          path: /upload/confirm # To confirm an uploaded file
+          path: ${self:custom.httpBasePath}/upload/confirm # To confirm an uploaded file
           method: POST
 
   websocketRouter:
