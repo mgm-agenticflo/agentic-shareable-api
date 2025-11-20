@@ -1,77 +1,161 @@
-import axios, { AxiosInstance } from "axios";
-import { TransientTokenService } from "./transient-token";
+import { AxiosInstance } from 'axios';
+import logger from '../utils/logger';
+import { getHttpClient } from './http-client';
+import { ShareableContext } from '../types/shareable-context';
+import {
+  APIResponseType,
+  ChatMessage,
+  FileConfirmationDTO,
+  FileCreateDTO,
+  FileDTO,
+  SignedUrl,
+  WebChatHistory
+} from '../types/agentifclo-types';
 
-export class CoreApiService {
-	public baseURL: string;
-	public transientTokenService: TransientTokenService;
-	private client: AxiosInstance;
+/**
+ * Creates a Core API service instance with methods for interacting with the backend API.
+ *
+ * This service handles all core API operations including:
+ * - Configuration retrieval
+ * - Webchat messaging and history
+ * - File upload workflows
+ *
+ * @param client - Axios instance used for making HTTP requests
+ * @returns Object containing API service methods
+ */
+export const CreateCoreApiService = (client: AxiosInstance) => ({
+  /**
+   * Retrieves the shareable configuration context using a shareable token.
+   *
+   * @param shareableToken - Token used to authenticate and identify the shareable resource
+   * @returns Promise resolving to the ShareableContext, or undefined if not found
+   * @throws Error if the API request fails or returns an unsuccessful response
+   */
+  getConfiguration: async (shareableToken: string): Promise<ShareableContext | undefined> => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
+    const response = await client.get<APIResponseType<ShareableContext>>(`/shareable`, { headers });
+    if (!response.data.success) {
+      throw new Error(`Failed to fetch resource: ${response.data.message}`);
+    }
+    return response.data.result;
+  },
 
-	constructor() {
-		this.baseURL = process.env.CORE_API_URL!;
-		this.transientTokenService = new TransientTokenService();
-		this.client = axios.create({
-			baseURL: this.baseURL,
-			timeout: 10000, // 10 seconds
-			headers: {
-				"Content-Type": "application/json",
-			},
-		});
-	}
+  /**
+   * Sends a message to the webchat session.
+   *
+   * @param sessionId - Unique identifier for the webchat session
+   * @param payload - Message payload containing the message text and optional additional data
+   * @param shareableToken - Token used to authenticate the request
+   * @returns Promise resolving to the created ChatMessage, or undefined if creation failed
+   * @throws Error if the API request fails or returns an unsuccessful response
+   */
+  sendWebchatMessage: async (
+    sessionId: string,
+    payload: { message: string; [key: string]: unknown },
+    shareableToken: string
+  ): Promise<ChatMessage | undefined> => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
+    const response = await client.post<APIResponseType<ChatMessage>>(`/webchat/${sessionId}`, payload, { headers });
+    if (!response.data.success) {
+      throw new Error(`Failed to send webchat message: ${response.data.message}`);
+    }
+    return response.data.result;
+  },
 
-	async getConfiguration(shareableToken: string) {
-		try {
-			const response = await this.client.get(
-				`/shareable/validate/${shareableToken}`
-			);
-			return response.data;
-		} catch (error: any) {
-			console.error("Resource error:", {
-				status: error.response?.status,
-				data: error.response?.data,
-				message: error.message,
-			});
+  /**
+   * Retrieves the complete message history for a webchat session.
+   *
+   * @param sessionId - Unique identifier for the webchat session
+   * @param shareableToken - Token used to authenticate the request
+   * @returns Promise resolving to an array of ChatMessages (empty array if no history exists)
+   * @throws Error if the API request fails or returns an unsuccessful response
+   */
+  getWebchatHistory: async (sessionId: string, shareableToken: string): Promise<ChatMessage[]> => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
+    const response = await client.get<APIResponseType<WebChatHistory>>(`/webchat/history/${sessionId}`, { headers });
+    if (!response.data.success) {
+      throw new Error(`Failed to fetch webchat history: ${response.data.message}`);
+    }
+    const messages = response.data.result?.messages || [];
+    return messages;
+  },
 
-			if (error.response?.status === 403) {
-				throw new Error("INVALID_TOKEN");
-			}
-			throw new Error(`CONFIGURATION_ACCESS_ERROR: ${error.message}`);
-		}
-	}
+  /**
+   * Requests a presigned URL for uploading a file to cloud storage.
+   *
+   * This is the first step in the file upload process. The returned URL can be used
+   * to directly upload the file to the storage service.
+   *
+   * @param fileCreate - File metadata including name, size, type, etc.
+   * @param shareableToken - Token used to authenticate the request
+   * @returns Promise resolving to SignedUrl details, or undefined if the request fails
+   * @throws Error if the API request fails or returns an unsuccessful response
+   */
+  getPresignedUploadUrl: async (fileCreate: FileCreateDTO, shareableToken: string): Promise<SignedUrl | undefined> => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
+    const response = await client.post<APIResponseType<SignedUrl>>(`/upload/get-link`, fileCreate, { headers });
+    if (!response.data.success) {
+      throw new Error(`Failed to fetch upload link: ${response.data.message}`);
+    }
+    const details = response.data.result;
+    if (!details) {
+      logger.error('Unexpected empty response', response.data);
+      return;
+    }
+    const { url, file } = details;
+    return {
+      url,
+      file: {
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+        virtualPath: file.virtualPath,
+        hash: file.hash
+      }
+    };
+  },
 
-	async sendWebchatMessage(transientToken: string, payload: any) {
-		try {
-			const tokenPayload =
-				this.transientTokenService.verifyTransientToken(transientToken);
-			const headers = {
-				Authorization: `Bearer ${transientToken}`,
-				"x-session-id": payload.sessionId,
-				"x-shareable-token": tokenPayload.shareableToken,
-			};
-			const response = await this.client.post(`/chats/new-message`, payload, {
-				headers,
-			});
-			return response.data;
-		} catch (error) {
-			throw new Error("WEBCHAT_MESSAGE_ERROR");
-		}
-	}
+  /**
+   * Confirms that a file upload has been completed successfully.
+   *
+   * This should be called after the file has been uploaded to the presigned URL
+   * to notify the backend that the upload is complete and ready for processing.
+   *
+   * @param fileCreate - File confirmation data including upload metadata
+   * @param shareableToken - Token used to authenticate the request
+   * @returns Promise resolving to SignedUrl details, or undefined if confirmation fails
+   * @throws Error if the API request fails or returns an unsuccessful response
+   */
+  confirmFileUpload: async (fileCreate: FileConfirmationDTO, shareableToken: string): Promise<FileDTO | undefined> => {
+    const headers = {
+      'x-shareable-token': shareableToken
+    };
+    const response = await client.post<APIResponseType<FileDTO>>(`/upload/confirm`, fileCreate, { headers });
+    if (!response.data.success && !response.data.result) {
+      throw new Error(`Failed to confirm upload: ${response.data.message}`);
+    }
+    const details = response.data.result;
+    if (!details) {
+      logger.error('Unexpected empty response', response.data);
+      return;
+    }
+    return {
+      name: details.name,
+      mime: details.mime,
+      size: details.size,
+      virtualPath: details.virtualPath,
+      hash: details.hash
+    };
+  }
+});
 
-	async getWebchatHistory(transientToken: string, sessionId: string) {
-		try {
-			const tokenPayload =
-				this.transientTokenService.verifyTransientToken(transientToken);
-			const headers = {
-				Authorization: `Bearer ${transientToken}`,
-				"x-session-id": sessionId,
-				"x-shareable-token": tokenPayload.shareableToken,
-			};
-			const response = await this.client.get(`/chats/history`, {
-				headers,
-			});
-			console.log("History response data:", response.data);
-			return response?.data?.data?.messages || [];
-		} catch (error) {
-			throw new Error("WEBCHAT_HISTORY_ERROR");
-		}
-	}
-}
+export type CoreApiService = ReturnType<typeof CreateCoreApiService>;
+export const coreApi = CreateCoreApiService(getHttpClient());

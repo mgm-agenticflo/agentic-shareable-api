@@ -1,13 +1,43 @@
-service: agentic-shareables-middleware
+service: agentic-shareables-api
+useDotenv: true
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+
+custom:
+  httpBasePath: ${env:HTTP_BASE_PATH, ''}
+  esbuild:
+    bundle: true
+    external: []
+    minify: true
+    target: node20
+    platform: node
+    format: esm
+    banner:
+      js: 'import { createRequire } from "module"; const require = createRequire(import.meta.url);'
+    keepNames: false
+    sourcesContent: false
+    sourcemap: false # do not create source maps, cleaner and faster prod setup
+    watch: true # usefull for dev, harmless for prod
+
+  serverless-offline:
+    host: 127.0.0.1
+    httpPort: ${env:OFFLINE_HTTP_PORT, 6000}
+    websocketPort: ${env:OFFLINE_WS_PORT, 6001}
+
+  logLevel:
+    dev: 'debug'
+    prod: 'warn'
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs20.x
   region: us-east-1
   httpApi:
     cors:
       allowedOrigins:
-        - "*"
+        - '*'
       allowedHeaders:
         - Content-Type
         - Authorization
@@ -22,42 +52,123 @@ provider:
         - DELETE
         - OPTIONS
   environment:
-    CORE_API_URL: ${env:CORE_API_URL}
-    JWT_SECRET: ${env:JWT_SECRET}
+    AGENTICFLO_BASE_URL: ${env:AGENTICFLO_BASE_URL}
+    AGENTICFLO_REQUEST_TIMEOUT: ${env:AGENTICFLO_REQUEST_TIMEOUT, 10000}
+    AGENTICFLO_BACKPLANE_TOKEN: ${env:AGENTICFLO_BACKPLANE_TOKEN}
+    AGENTICFLO_TLS_INSECURE: ${env:AGENTICFLO_TLS_INSECURE}
+    CLIENT_AUTH_SECRET: ${env:CLIENT_AUTH_SECRET}
+    DEFAULT_CLIENT_AUTH_TTL: ${env:DEFAULT_CLIENT_AUTH_TTL, '10m'}
+    HTTP_BASE_PATH: ${self:custom.httpBasePath}
+    IS_OFFLINE: ${env:IS_OFFLINE, 'false'}
+    STAGE: ${sls:stage, 'dev'}
+    LOG_LEVEL: ${self:custom.logLevel.${sls:stage}, 'info'}
+    WS_CONNECTIONS_TABLE: ${self:service}-connections-${sls:stage}
+    OFFLINE_HTTP_PORT: ${env:OFFLINE_HTTP_PORT, 6000}
+    OFFLINE_WS_PORT: ${env:OFFLINE_WS_PORT, 6001}
+    WEBSOCKET_API_ENDPOINT: # Automatic native endpoint injection
+      Fn::Join:
+        - ''
+        - - 'https://'
+          - Ref: WebsocketsApi
+          - '.execute-api.'
+          - Ref: AWS::Region
+          - '.amazonaws.com/'
+          - ${sls:stage}
 
 functions:
-  validateToken:
-    handler: src/handlers/validate.handler
-    events:
-      - http:
-          path: /validate/{token}
-          method: get
-          cors: true
-
-  getResource:
-    handler: src/handlers/resource.get
-    events:
-      - http:
-          path: /resource/{token}
-          method: get
-          cors: true
-
-  executeAction:
-    handler: src/handlers/action.execute
+  httpRouter:
+    handler: src/http-router.handler
     timeout: 60
     events:
-      - http:
-          path: /action
-          method: post
-          cors: true
+      # HTTP API
+      - httpApi:
+          path: ${self:custom.httpBasePath}/resource/get # To obtain shared resource details
+          method: POST
+      - httpApi:
+          path: ${self:custom.httpBasePath}/webchat/get-history # To get webchat initialization: history, pending tasks...
+          method: POST
+      - httpApi:
+          path: ${self:custom.httpBasePath}/webchat/send # To post webchat actions, send message, finish conversation, feedback...
+          method: POST
+      - httpApi:
+          path: ${self:custom.httpBasePath}/upload/get-link # To get an upload link
+          method: POST
+      - httpApi:
+          path: ${self:custom.httpBasePath}/upload/confirm # To confirm an uploaded file
+          method: POST
 
-  corsHandler:
-    handler: src/handlers/cors.handler
+  websocketRouter:
+    handler: src/websocket-router.handler
+    timeout: 60
     events:
-      - http:
-          path: /{proxy+}
-          method: options
-          cors: true
+      # WebSocket API
+      - websocket:
+          route: $connect
+      - websocket:
+          route: $disconnect
+      - websocket:
+          route: $default
 
-plugins:
-  - serverless-offline
+resources:
+  Resources:
+    # DynamoDB table for WebSocket connections
+    ConnectionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-connections-${sls:stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: connectionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: connectionId
+            KeyType: HASH
+        TimeToLiveSpecification:
+          Enabled: true
+          AttributeName: ttl
+
+    # IAM role permissions for WebSocket API
+    WebSocketApiPermissions:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: ${self:service}-websocket-policy-${sls:stage}
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            # Allow Lambda to manage WebSocket connections
+            - Effect: Allow
+              Action:
+                - execute-api:ManageConnections
+              Resource:
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsocketsApi}/*/@connections/*'
+            # Allow Lambda to access DynamoDB connections table
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !GetAtt ConnectionsTable.Arn
+        Roles:
+          - !Ref IamRoleLambdaExecution
+
+  Outputs:
+    HttpApiUrl:
+      Description: HTTP API Gateway URL
+      Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+      Export:
+        Name: ${self:service}-http-api-url-${sls:stage}
+
+    WebSocketUrl:
+      Description: WebSocket API Gateway URL
+      Value: !Sub 'wss://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${sls:stage}'
+      Export:
+        Name: ${self:service}-websocket-url-${sls:stage}
+
+    ConnectionsTableName:
+      Description: DynamoDB Connections Table Name
+      Value: !Ref ConnectionsTable
+      Export:
+        Name: ${self:service}-connections-table-${sls:stage}
