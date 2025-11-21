@@ -1,13 +1,13 @@
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, HttpStatusCode } from 'axios';
-import logger from '../utils/logger';
+import axios, { AxiosError, AxiosInstance, HttpStatusCode, InternalAxiosRequestConfig } from 'axios';
+import https from 'node:https';
 import { HttpCodedError } from '../errors/http-error';
 import { getErrorMessage, isTrue } from '../utils/lib';
-import https from 'node:https';
+import logger from '../utils/logger';
 
 /**
  * Default timeout for HTTP requests in milliseconds.
  */
-const DEFAULT_REQUEST_TIMEOUT = 10000;
+const DEFAULT_REQUEST_TIMEOUT = 30000;
 
 /**
  * Singleton instance of the HTTP client.
