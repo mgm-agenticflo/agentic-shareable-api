@@ -9,7 +9,10 @@ export default tseslint.config(
     ignores: ['eslint.config.mjs', '**/*.test.*', '**/*.spec.ts']
   },
   eslint.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+  ...tseslint.configs.recommendedTypeChecked.map((config) => ({
+    ...config,
+    files: ['**/*.ts']
+  })),
   eslintPluginPrettierRecommended,
   {
     languageOptions: {
@@ -26,10 +29,20 @@ export default tseslint.config(
     }
   },
   {
+    files: ['**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn'
+    }
+  },
+  {
+    files: ['**/*.js'],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      parserOptions: {
+        projectService: true
+      }
     }
   }
 );

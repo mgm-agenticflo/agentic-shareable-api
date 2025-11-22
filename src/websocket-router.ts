@@ -1,11 +1,9 @@
-import type { APIGatewayProxyStructuredResultV2, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
-import { handleConnect, handleDisconnect } from './handlers/websocket-connection';
+import type { WebSocket } from 'ws';
 import { connectionManager } from './services/connection-manager';
-import { websocketClient } from './services/websocket-client';
 import { RequestEvent, WebSocketMessage } from './types/request-types';
 import { HandlerFn } from './types/handler-types';
-import { getErrorMessage, safeJson } from './utils/lib';
-import { failure, success, wsFailure, wsSuccess } from './utils/response';
+import { getErrorMessage } from './utils/lib';
+import { wsFailure, wsSuccess } from './utils/response';
 import { ConnectionRecord } from './types/websocket-types';
 import { HttpCodedError } from './errors/http-error';
 import { HttpStatusCode } from 'axios';
@@ -17,48 +15,27 @@ import { webchatModule } from './handlers/webchat';
 import { uploadModule } from './handlers/upload';
 import { authModule } from './handlers/auth';
 
-/**
- * Routing map for WebSocket messages
- * Reuses the exact same handlers as HTTP!
- * Format: { "resource:action": handler }
- */
 const messageRoutingMap: Record<string, HandlerFn> = {
-  // Authentication handler - must be called first after connection
-  // Client sends: { command: "authenticate", token: "shareable-token" }
   authenticate: authModule.authenticate as HandlerFn,
-
-  // Public resource handler (no auth needed, validated via shareable token)
   'resource:get': resourceModule.get as HandlerFn,
-
-  // Protected handlers (auth required via authenticate command)
-  // webchat handlers
   'webchat:get-history': webchatModule.getHistory as HandlerFn,
   'webchat:send': webchatModule.send as HandlerFn,
-
-  // Upload handlers
   'upload:get-link': uploadModule.getUploadLink as HandlerFn,
   'upload:confirm': uploadModule.confirmUpload as HandlerFn
 };
 
-/**
- * Parse WebSocket message and create RequestEvent
- * Converts: { command: "webchat:send", message: "Hello" }
- * Into: RequestEvent with targetResource: { method: "WS", resource: "webchat", action: "send" }
- */
-function parseWebSocketMessage(event: APIGatewayProxyWebsocketEventV2, connectionData: ConnectionRecord): RequestEvent {
-  const body = safeJson(event.body);
-  const message = body as WebSocketMessage;
-
-  // Parse command format: "resource:action"
+function parseWebSocketMessage(message: WebSocketMessage, connectionData: ConnectionRecord, connectionId: string, ws: WebSocket): RequestEvent {
   const rawCommand = message.command || '';
   const [resource, action] = rawCommand.split(':');
 
-  // Create a copy without the command field for parsedBody
   const { command, ...parsedBody } = message;
   void command;
 
   return {
-    websocketContext: event,
+    websocketContext: {
+      connectionId,
+      ws
+    },
     shareableContext: connectionData.shareableContext,
     parsedBody,
     targetResource: {
@@ -69,142 +46,96 @@ function parseWebSocketMessage(event: APIGatewayProxyWebsocketEventV2, connectio
   };
 }
 
-/**
- * Get WebSocket endpoint URL from event
- * In offline mode, always use localhost regardless of what the proxy reports
- */
-function getWebSocketEndpoint(event: APIGatewayProxyWebsocketEventV2): string {
-  // In offline mode, force localhost endpoint
-  if (process.env.IS_OFFLINE === 'true') {
-    const port = process.env.OFFLINE_WS_PORT || '6001';
-    const endpoint = `http://localhost:${port}`;
-    logger.debug(`[OFFLINE MODE] Using WebSocket endpoint: ${endpoint}`);
-    return endpoint;
-  }
-
-  // In production, use the actual domain from the event
-  const { domainName, stage } = event.requestContext;
-  return `https://${domainName}/${stage}`;
-}
-
-/**
- * Handle WebSocket $default route (message handling)
- * This reuses existing HTTP handlers!
- */
-async function handleMessage(event: APIGatewayProxyWebsocketEventV2): Promise<APIGatewayProxyStructuredResultV2> {
-  const connectionId = event.requestContext.connectionId;
-  const endpoint = getWebSocketEndpoint(event);
-
+export async function handleWebSocketMessage(
+  connectionId: string,
+  message: WebSocketMessage,
+  ws: WebSocket
+): Promise<void> {
   try {
-    // Retrieve connection data from DynamoDB
     const connection = await connectionManager.getConnection(connectionId);
 
     if (!connection) {
       logger.warn(`Message from unknown connection: ${connectionId}`);
-      await websocketClient.sendToConnection(
-        endpoint,
-        connectionId,
-        '',
-        wsFailure('Connection not found', HttpStatusCode.NotFound)
+      ws.send(
+        JSON.stringify({
+          success: false,
+          command: message.command || 'unknown',
+          message: 'Connection not found',
+          error: { message: 'Connection not found', code: 'NOT_FOUND' },
+          statusCode: HttpStatusCode.NotFound
+        })
       );
-      return failure('Connection not found', HttpStatusCode.NotFound);
+      return;
     }
 
-    // Parse the message into RequestEvent format
-    const requestEvent = parseWebSocketMessage(event, connection);
-
+    const requestEvent = parseWebSocketMessage(message, connection, connectionId, ws);
     const { resource, action } = requestEvent.targetResource;
-    // Build command key - handle single-word commands (like "authenticate") without action
     const command = action ? `${resource}:${action}` : resource;
 
-    // Look up handler in routing map
     const handler = messageRoutingMap[command];
 
     if (!handler) {
       logger.warn(`Unknown command: ${command}`);
-      await websocketClient.sendToConnection(
-        endpoint,
-        connectionId,
-        command,
-        wsFailure(`Unknown command: ${command}`, HttpStatusCode.BadRequest)
+      ws.send(
+        JSON.stringify({
+          success: false,
+          command,
+          message: `Unknown command: ${command}`,
+          error: { message: `Unknown command: ${command}`, code: 'UNKNOWN_COMMAND' },
+          statusCode: HttpStatusCode.BadRequest
+        })
       );
-      return success(); // Return success to Lambda, error sent to client
+      return;
     }
 
-    // Check authentication for all commands except 'authenticate'
     if (command !== 'authenticate') {
       requireAuthentication(connection, command);
     }
 
-    // Execute the handler
     const handlerResponse = await handler(requestEvent);
 
-    // Send response back to the client
-    // handlerResponse has shape { result, statusCode }, extract result for WebSocket response
-    await websocketClient.sendToConnection(
-      endpoint,
-      connectionId,
-      command,
-      wsSuccess(handlerResponse.result, handlerResponse.statusCode)
+    ws.send(
+      JSON.stringify({
+        success: true,
+        command,
+        result: handlerResponse.result,
+        statusCode: handlerResponse.statusCode || HttpStatusCode.Ok
+      })
     );
-    return success();
-  } catch (err: any) {
+  } catch (err: unknown) {
     const msg = getErrorMessage(err);
-    logger.error(`Error handling WebSocket message ${msg}`, err);
+    logger.error(`Error handling WebSocket message: ${msg}`, err);
 
-    // Try to send error to client
     try {
-      const body = safeJson(event.body);
-      const command = (body as WebSocketMessage).command || 'unknown';
+      const command = (message as WebSocketMessage).command || 'unknown';
 
       if (err instanceof HttpCodedError) {
-        await websocketClient.sendToConnection(endpoint, connectionId, command, wsFailure(err.message, err.statusCode));
+        ws.send(
+          JSON.stringify({
+            success: false,
+            command,
+            message: err.message,
+            error: { message: err.message, code: err.details ? String(err.details) : undefined },
+            statusCode: err.statusCode
+          })
+        );
 
-        // Disconnect if the error requires it
         if (err.shouldClose) {
-          await websocketClient.disconnect(endpoint, connectionId);
+          ws.close();
         }
       } else {
-        await websocketClient.sendToConnection(
-          endpoint,
-          connectionId,
-          command,
-          wsFailure('Internal server error', HttpStatusCode.InternalServerError)
+        ws.send(
+          JSON.stringify({
+            success: false,
+            command,
+            message: 'Internal server error',
+            error: { message: msg, code: 'INTERNAL_ERROR' },
+            statusCode: HttpStatusCode.InternalServerError
+          })
         );
       }
     } catch (sendError) {
       logger.error(`Failed to send error message to client:`, sendError);
     }
-
-    return success(); // Always return success to Lambda
   }
 }
-
-/**
- * Main WebSocket Lambda handler
- * Routes to appropriate handler based on route key
- */
-export const handler = async (event: APIGatewayProxyWebsocketEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
-  const routeKey = event.requestContext.routeKey;
-
-  try {
-    switch (routeKey) {
-      case '$connect':
-        return await handleConnect(event);
-
-      case '$disconnect':
-        return await handleDisconnect(event);
-
-      case '$default':
-        return await handleMessage(event);
-
-      default:
-        logger.warn(`Unknown route key: ${routeKey}`);
-        return failure(`Unknown route: ${routeKey}`, HttpStatusCode.BadRequest);
-    }
-  } catch (err: any) {
-    const msg = getErrorMessage(err);
-    logger.error(`WebSocket handler error:`, err);
-    return failure(msg, HttpStatusCode.InternalServerError);
-  }
-};

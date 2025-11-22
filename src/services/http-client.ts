@@ -1,5 +1,5 @@
-import axios, { AxiosError, AxiosInstance, HttpStatusCode, InternalAxiosRequestConfig } from 'axios';
-import https from 'node:https';
+import axios, { AxiosError, AxiosInstance, AxiosResponse, HttpStatusCode, InternalAxiosRequestConfig } from 'axios';
+import https from 'https';
 import { HttpCodedError } from '../errors/http-error';
 import { getErrorMessage, isTrue } from '../utils/lib';
 import logger from '../utils/logger';
@@ -135,7 +135,7 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
 
   // Response interceptor for logging and error handling
   client.interceptors.response.use(
-    (response) => {
+    (response: AxiosResponse) => {
       return response;
     },
     (error: AxiosError) => {

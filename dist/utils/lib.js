@@ -1,14 +1,9 @@
-import { APIGatewayProxyEventV2 } from 'aws-lambda';
-import type { Request } from 'express';
-import { RequestEvent } from '../types/request-types';
-
-export function isTrue(mystery: string | undefined): boolean {
-  if (!mystery) {
-    return false;
-  }
-  return ['1', 'true', 'yes', 'on'].includes(String(mystery).toLowerCase());
+export function isTrue(mystery) {
+    if (!mystery) {
+        return false;
+    }
+    return ['1', 'true', 'yes', 'on'].includes(String(mystery).toLowerCase());
 }
-
 /**
  * Retrieves a header value from API Gateway event headers in a case-insensitive manner.
  *
@@ -28,18 +23,18 @@ export function isTrue(mystery: string | undefined): boolean {
  * const bearer = getHeader(headers, 'AUTHORIZATION'); // Also works
  * ```
  */
-export function getHeader(headers: Record<string, string | undefined>, name: string): string | undefined {
-  if (!headers) {
-    return;
-  }
-  const h = headers;
-  const target = name.toLowerCase();
-  for (const k in h) {
-    if (k.toLowerCase() === target) return h[k];
-  }
-  return undefined;
+export function getHeader(headers, name) {
+    if (!headers) {
+        return;
+    }
+    const h = headers;
+    const target = name.toLowerCase();
+    for (const k in h) {
+        if (k.toLowerCase() === target)
+            return h[k];
+    }
+    return undefined;
 }
-
 /**
  * Safely parses JSON from a request body, handling Base64 encoding and errors gracefully.
  *
@@ -72,16 +67,17 @@ export function getHeader(headers: Record<string, string | undefined>, name: str
  * // => {}
  * ```
  */
-export function safeJson<T = Record<string, unknown>>(body: string | null | undefined, isBase64Encoded?: boolean): T {
-  if (!body) return {} as T;
-  const str = isBase64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
-  try {
-    return JSON.parse(str) as T;
-  } catch {
-    return {} as T;
-  }
+export function safeJson(body, isBase64Encoded) {
+    if (!body)
+        return {};
+    const str = isBase64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
+    try {
+        return JSON.parse(str);
+    }
+    catch {
+        return {};
+    }
 }
-
 /**
  * Safely extracts a human-readable error message from an unknown error value.
  *
@@ -118,12 +114,13 @@ export function safeJson<T = Record<string, unknown>>(body: string | null | unde
  * // => 'Unexpected error occurred'
  * ```
  */
-export function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  return 'Unexpected error occurred';
+export function getErrorMessage(err) {
+    if (err instanceof Error)
+        return err.message;
+    if (typeof err === 'string')
+        return err;
+    return 'Unexpected error occurred';
 }
-
 /**
  * Type guard that checks whether an unknown value is a non-null object
  * containing a specific property key.
@@ -163,10 +160,9 @@ export function getErrorMessage(err: unknown): string {
  * // => false (strings are not plain objects)
  * ```
  */
-export function hasKey(mystery: unknown, key: string): mystery is Record<string, unknown> {
-  return typeof mystery === 'object' && mystery !== null && key in mystery;
+export function hasKey(mystery, key) {
+    return typeof mystery === 'object' && mystery !== null && key in mystery;
 }
-
 /**
  * Parses an Express Request or AWS API Gateway V2 HTTP event into a structured request object.
  *
@@ -184,47 +180,38 @@ export function hasKey(mystery: unknown, key: string): mystery is Record<string,
  * const requestEvent = parseHttpEvent(req);
  * // Returns: { targetResource: { method: 'POST', resource: 'users', action: 'create' }, ... }
  */
-export function parseHttpEvent(reqOrEvent: Request | APIGatewayProxyEventV2): RequestEvent {
-  // Check if it's an Express Request (has method and path properties directly)
-  if ('method' in reqOrEvent && 'path' in reqOrEvent && typeof reqOrEvent.method === 'string') {
-    const req = reqOrEvent;
-    const method = req.method.toUpperCase();
-    const path = req.path;
-
+export function parseHttpEvent(reqOrEvent) {
+    // Check if it's an Express Request (has method and path properties directly)
+    if ('method' in reqOrEvent && 'path' in reqOrEvent && typeof reqOrEvent.method === 'string') {
+        const req = reqOrEvent;
+        const method = req.method.toUpperCase();
+        const path = req.path;
+        // Strip base path if configured
+        const basePath = process.env.HTTP_BASE_PATH || '';
+        const normalizedPath = basePath ? path.replace(new RegExp(`^${basePath}`), '') : path;
+        const pathParts = normalizedPath?.split('/').filter(Boolean) ?? [];
+        const resource = pathParts[0] ?? undefined;
+        const action = pathParts[1] ?? undefined;
+        const targetResource = { method, resource, action };
+        return {
+            httpContext: req,
+            parsedBody: req.body || {},
+            targetResource
+        };
+    }
+    // Otherwise, it's an API Gateway event
+    const event = reqOrEvent;
+    const { http: { path, method } } = event.requestContext;
     // Strip base path if configured
     const basePath = process.env.HTTP_BASE_PATH || '';
     const normalizedPath = basePath ? path.replace(new RegExp(`^${basePath}`), '') : path;
-
     const pathParts = normalizedPath?.split('/').filter(Boolean) ?? [];
     const resource = pathParts[0] ?? undefined;
     const action = pathParts[1] ?? undefined;
     const targetResource = { method, resource, action };
-
     return {
-      httpContext: req as unknown as APIGatewayProxyEventV2,
-      parsedBody: (req.body as Record<string, unknown>) || {},
-      targetResource
+        httpContext: event,
+        parsedBody: safeJson(event.body, event.isBase64Encoded),
+        targetResource
     };
-  }
-
-  // Otherwise, it's an API Gateway event
-  const event = reqOrEvent as APIGatewayProxyEventV2;
-  const {
-    http: { path, method }
-  } = event.requestContext;
-
-  // Strip base path if configured
-  const basePath = process.env.HTTP_BASE_PATH || '';
-  const normalizedPath = basePath ? path.replace(new RegExp(`^${basePath}`), '') : path;
-
-  const pathParts = normalizedPath?.split('/').filter(Boolean) ?? [];
-  const resource = pathParts[0] ?? undefined;
-  const action = pathParts[1] ?? undefined;
-  const targetResource = { method, resource, action };
-
-  return {
-    httpContext: event,
-    parsedBody: safeJson(event.body, event.isBase64Encoded),
-    targetResource
-  };
 }

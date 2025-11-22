@@ -1,3 +1,4 @@
+import type { WebSocket } from 'ws';
 import { APIGatewayProxyEventV2, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
 import { ShareableContext } from './shareable-context';
 
@@ -7,9 +8,14 @@ export type TargetResource = {
   action?: string;
 };
 
+export type NativeWebSocketContext = {
+  connectionId: string;
+  ws: WebSocket | null;
+};
+
 export type RequestEvent<T = unknown> = {
   httpContext?: APIGatewayProxyEventV2;
-  websocketContext?: APIGatewayProxyWebsocketEventV2;
+  websocketContext?: APIGatewayProxyWebsocketEventV2 | NativeWebSocketContext;
   shareableContext?: ShareableContext;
   parsedBody: T;
   targetResource: TargetResource;

@@ -34,7 +34,15 @@ export const authModule = {
    * @throws {HttpCodedError} 500 - If connection update fails
    */
   authenticate: async (event: RequestEvent) => {
-    const connectionId = event.websocketContext?.requestContext.connectionId;
+    let connectionId: string | undefined;
+
+    if (event.websocketContext) {
+      if ('requestContext' in event.websocketContext && event.websocketContext.requestContext) {
+        connectionId = (event.websocketContext.requestContext as { connectionId?: string }).connectionId;
+      } else if ('connectionId' in event.websocketContext) {
+        connectionId = event.websocketContext.connectionId as string;
+      }
+    }
 
     if (!connectionId) {
       throw new HttpCodedError(HttpStatusCode.InternalServerError, 'No connection ID found');
