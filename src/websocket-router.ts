@@ -1,21 +1,22 @@
 import type { APIGatewayProxyStructuredResultV2, APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
-import { handleConnect, handleDisconnect } from './handlers/websocket-connection';
-import { connectionManager } from './services/connection-manager';
-import { websocketClient } from './services/websocket-client';
-import { RequestEvent, WebSocketMessage } from './types/request-types';
-import { HandlerFn } from './types/handler-types';
-import { getErrorMessage, safeJson } from './utils/lib';
-import { failure, success, wsFailure, wsSuccess } from './utils/response';
-import { ConnectionRecord } from './types/websocket-types';
-import { HttpCodedError } from './errors/http-error';
 import { HttpStatusCode } from 'axios';
-import logger from './utils/logger';
+import { HttpCodedError } from './errors/http-error';
+import { handleConnect, handleDisconnect } from './handlers/websocket-connection';
 import { requireAuthentication } from './middlewares/ws-auth';
+import { connectionManager } from './services/connection-manager';
+import { extractErrorData, notifySlackAsync } from './services/slack-notifier';
+import { websocketClient } from './services/websocket-client';
+import { HandlerFn } from './types/handler-types';
+import { RequestEvent, WebSocketMessage } from './types/request-types';
+import { ConnectionRecord } from './types/websocket-types';
+import { getErrorMessage, safeJson } from './utils/lib';
+import logger from './utils/logger';
+import { failure, success, wsFailure, wsSuccess } from './utils/response';
 
-import { resourceModule } from './handlers/resource';
-import { webchatModule } from './handlers/webchat';
-import { uploadModule } from './handlers/upload';
 import { authModule } from './handlers/auth';
+import { resourceModule } from './handlers/resource';
+import { uploadModule } from './handlers/upload';
+import { webchatModule } from './handlers/webchat';
 
 /**
  * Routing map for WebSocket messages
@@ -152,6 +153,20 @@ async function handleMessage(event: APIGatewayProxyWebsocketEventV2): Promise<AP
     const msg = getErrorMessage(err);
     logger.error(`Error handling WebSocket message ${msg}`, err);
 
+    try {
+      const connection = await connectionManager.getConnection(connectionId);
+      if (connection) {
+        const requestEvent = parseWebSocketMessage(event, connection);
+        const errorData = extractErrorData(requestEvent, err);
+        notifySlackAsync(errorData);
+      } else {
+        const errorData = extractErrorData(null, err, { connectionId });
+        notifySlackAsync(errorData);
+      }
+    } catch (notificationError) {
+      logger.error('Failed to extract error data for Slack notification', notificationError);
+    }
+
     // Try to send error to client
     try {
       const body = safeJson(event.body);
@@ -205,6 +220,17 @@ export const handler = async (event: APIGatewayProxyWebsocketEventV2): Promise<A
   } catch (err: any) {
     const msg = getErrorMessage(err);
     logger.error(`WebSocket handler error:`, err);
+
+    const errorData = extractErrorData(
+      {
+        websocketContext: event,
+        parsedBody: {},
+        targetResource: { method: 'WS', resource: routeKey || 'unknown' }
+      },
+      err
+    );
+    notifySlackAsync(errorData);
+
     return failure(msg, HttpStatusCode.InternalServerError);
   }
 };

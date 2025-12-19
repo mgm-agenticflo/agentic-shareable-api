@@ -1,16 +1,17 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
+import { HttpStatusCode } from 'axios';
+import { HttpCodedError } from './errors/http-error';
+import { resourceModule } from './handlers/resource';
+import { uploadModule } from './handlers/upload';
+import { webchatModule } from './handlers/webchat';
+import { jwtMiddleware } from './middlewares/jwt-guard';
+import { extractErrorData, notifySlackAsync } from './services/slack-notifier';
+import { HandlerFn, Middleware } from './types/handler-types';
+import { RequestEvent } from './types/request-types';
+import { HandlerResponse } from './types/response-types';
 import { getErrorMessage, parseHttpEvent } from './utils/lib';
 import logger from './utils/logger';
-import { HttpCodedError } from './errors/http-error';
-import { jwtMiddleware } from './middlewares/jwt-guard';
-import { resourceModule } from './handlers/resource';
-import { webchatModule } from './handlers/webchat';
-import { RequestEvent } from './types/request-types';
-import { HandlerFn, Middleware } from './types/handler-types';
-import { HttpStatusCode } from 'axios';
-import { uploadModule } from './handlers/upload';
 import { failure, success } from './utils/response';
-import { HandlerResponse } from './types/response-types';
 
 /**
  * Composes a handler function with a chain of middleware functions.
@@ -185,6 +186,10 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       pathParameters,
       queryStringParameters
     });
+
+    const errorData = extractErrorData(requestEvent, err);
+    notifySlackAsync(errorData);
+
     return failure(msg, statusCode, err as Error);
   }
 };
