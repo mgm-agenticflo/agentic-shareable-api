@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Serverless middleware for shareable tokens communication",
   "main": "index.js",
-  "type": "module",
   "scripts": {
     "dev": "npm-run-all -p typecheck:watch offline",
     "typecheck:watch": "tsc --noEmit --watch",

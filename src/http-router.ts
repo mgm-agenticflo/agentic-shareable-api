@@ -115,7 +115,7 @@ const routingMap: Record<string, Record<string, HandlerFn>> = {
  * Main AWS Lambda handler for processing HTTP API Gateway requests.
  *
  * This handler implements a resource-based routing system that:
- * 1. Parses the incoming API Gateway event into a normalized `RequestEvent`
+ * 1. Parses the incoming API Gateway event into a normalized `RequestEvent`,
  * 2. Extracts the resource path and HTTP method from the request context
  * 3. Looks up the appropriate handler in the routing map
  * 4. Executes the handler (with any configured middleware)

@@ -9,13 +9,10 @@ custom:
   httpBasePath: ${env:HTTP_BASE_PATH, ''}
   esbuild:
     bundle: true
-    external: []
     minify: true
-    target: node20
+    target: node18
     platform: node
-    format: esm
-    banner:
-      js: 'import { createRequire } from "module"; const require = createRequire(import.meta.url);'
+    concurrency: 10
     keepNames: false
     sourcesContent: false
     sourcemap: false # do not create source maps, cleaner and faster prod setup
