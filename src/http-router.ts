@@ -5,7 +5,7 @@ import { resourceModule } from './handlers/resource';
 import { uploadModule } from './handlers/upload';
 import { webchatModule } from './handlers/webchat';
 import { jwtMiddleware } from './middlewares/jwt-guard';
-import { extractErrorData, notifySlackAsync } from './services/slack-notifier';
+import { extractErrorData, notifySlackAsync, shouldNotifySlack } from './services/slack-notifier';
 import { HandlerFn, Middleware } from './types/handler-types';
 import { RequestEvent } from './types/request-types';
 import { HandlerResponse } from './types/response-types';
@@ -187,8 +187,10 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       queryStringParameters
     });
 
-    const errorData = extractErrorData(requestEvent, err);
-    notifySlackAsync(errorData);
+    if (shouldNotifySlack(err)) {
+      const errorData = extractErrorData(requestEvent, err);
+      notifySlackAsync(errorData);
+    }
 
     return failure(msg, statusCode, err as Error);
   }

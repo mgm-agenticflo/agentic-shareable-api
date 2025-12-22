@@ -1,5 +1,7 @@
+import { HttpStatusCode } from 'axios';
 import type { IncomingMessage } from 'http';
 import https from 'https';
+import { HttpCodedError } from '../errors/http-error';
 import { RequestEvent } from '../types/request-types';
 import { getHeader } from '../utils/lib';
 import logger from '../utils/logger';
@@ -22,6 +24,35 @@ export type ErrorNotificationData = {
 };
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+
+/**
+ * Checks if an error is a 401 error from the core API that has already been retried.
+ *
+ * These errors are mapped to HttpCodedError with statusCode 400 and message
+ * "Invalid or expired token" after retries are exhausted.
+ *
+ * @param error - The error to check
+ * @returns True if the error is a retried 401 from the core API, false otherwise
+ */
+function isRetriedCoreApi401Error(error: unknown): boolean {
+  if (!(error instanceof HttpCodedError)) {
+    return false;
+  }
+
+  if (error.statusCode !== (HttpStatusCode.BadRequest as number)) {
+    return false;
+  }
+
+  if (error.message !== 'Invalid or expired token') {
+    return false;
+  }
+
+  if (error.details && typeof error.details === 'object' && 'backendMessage' in error.details) {
+    return true;
+  }
+
+  return false;
+}
 
 function serializeError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
@@ -268,4 +299,17 @@ export function notifySlackAsync(errorData: ErrorNotificationData): void {
   sendSlackNotification(SLACK_WEBHOOK_URL, errorData).catch((error) => {
     logger.error('Failed to send Slack notification', error);
   });
+}
+
+/**
+ * Checks if an error should be sent to Slack.
+ *
+ * Filters out 401 errors from the core API that have already been retried,
+ * as these are expected and handled automatically.
+ *
+ * @param error - The error to check
+ * @returns True if the error should be sent to Slack, false otherwise
+ */
+export function shouldNotifySlack(error: unknown): boolean {
+  return !isRetriedCoreApi401Error(error);
 }

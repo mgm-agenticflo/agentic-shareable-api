@@ -10,6 +10,21 @@ import logger from '../utils/logger';
 const DEFAULT_REQUEST_TIMEOUT = 30000;
 
 /**
+ * Maximum number of retry attempts for 401 errors.
+ */
+const MAX_RETRY_ATTEMPTS = 5;
+
+/**
+ * Initial delay in milliseconds before the first retry.
+ */
+const INITIAL_RETRY_DELAY = 100;
+
+/**
+ * Maximum delay cap in milliseconds for exponential backoff.
+ */
+const MAX_RETRY_DELAY = 5000;
+
+/**
  * Singleton instance of the HTTP client.
  * Initialized on first call to getHttpClient().
  */
@@ -44,6 +59,17 @@ function buildHttpsAgent(opts: { insecureTLS?: boolean }) {
     return new https.Agent({ rejectUnauthorized: false });
   }
   return undefined;
+}
+
+/**
+ * Sleeps for the specified number of milliseconds.
+ *
+ * @param ms - Number of milliseconds to sleep
+ * @returns Promise that resolves after the specified delay
+ * @internal
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -138,9 +164,36 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
     (response) => {
       return response;
     },
-    (error: AxiosError) => {
+    async (error: AxiosError) => {
       const status = error.response?.status;
       const url = error.config?.url;
+      const config = error.config as InternalAxiosRequestConfig & { __retryCount?: number };
+
+      if (status === HttpStatusCode.Unauthorized && config) {
+        const retryCount = config.__retryCount ?? 0;
+
+        if (retryCount < MAX_RETRY_ATTEMPTS) {
+          const nextRetryCount = retryCount + 1;
+          const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, retryCount), MAX_RETRY_DELAY);
+
+          logger.warn(`HTTP 401 Error - Retrying request (attempt ${nextRetryCount}/${MAX_RETRY_ATTEMPTS})`, {
+            url,
+            retryCount: nextRetryCount,
+            delay
+          });
+
+          config.__retryCount = nextRetryCount;
+
+          await sleep(delay);
+
+          return client.request(config);
+        } else {
+          logger.error(`HTTP 401 Error - Max retries (${MAX_RETRY_ATTEMPTS}) exceeded`, {
+            url,
+            retryCount
+          });
+        }
+      }
 
       logger.error('HTTP Response Error', error, {
         status,

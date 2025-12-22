@@ -4,7 +4,7 @@ import { HttpCodedError } from './errors/http-error';
 import { handleConnect, handleDisconnect } from './handlers/websocket-connection';
 import { requireAuthentication } from './middlewares/ws-auth';
 import { connectionManager } from './services/connection-manager';
-import { extractErrorData, notifySlackAsync } from './services/slack-notifier';
+import { extractErrorData, notifySlackAsync, shouldNotifySlack } from './services/slack-notifier';
 import { websocketClient } from './services/websocket-client';
 import { HandlerFn } from './types/handler-types';
 import { RequestEvent, WebSocketMessage } from './types/request-types';
@@ -153,18 +153,20 @@ async function handleMessage(event: APIGatewayProxyWebsocketEventV2): Promise<AP
     const msg = getErrorMessage(err);
     logger.error(`Error handling WebSocket message ${msg}`, err);
 
-    try {
-      const connection = await connectionManager.getConnection(connectionId);
-      if (connection) {
-        const requestEvent = parseWebSocketMessage(event, connection);
-        const errorData = extractErrorData(requestEvent, err);
-        notifySlackAsync(errorData);
-      } else {
-        const errorData = extractErrorData(null, err, { connectionId });
-        notifySlackAsync(errorData);
+    if (shouldNotifySlack(err)) {
+      try {
+        const connection = await connectionManager.getConnection(connectionId);
+        if (connection) {
+          const requestEvent = parseWebSocketMessage(event, connection);
+          const errorData = extractErrorData(requestEvent, err);
+          notifySlackAsync(errorData);
+        } else {
+          const errorData = extractErrorData(null, err, { connectionId });
+          notifySlackAsync(errorData);
+        }
+      } catch (notificationError) {
+        logger.error('Failed to extract error data for Slack notification', notificationError);
       }
-    } catch (notificationError) {
-      logger.error('Failed to extract error data for Slack notification', notificationError);
     }
 
     // Try to send error to client
@@ -221,15 +223,17 @@ export const handler = async (event: APIGatewayProxyWebsocketEventV2): Promise<A
     const msg = getErrorMessage(err);
     logger.error(`WebSocket handler error:`, err);
 
-    const errorData = extractErrorData(
-      {
-        websocketContext: event,
-        parsedBody: {},
-        targetResource: { method: 'WS', resource: routeKey || 'unknown' }
-      },
-      err
-    );
-    notifySlackAsync(errorData);
+    if (shouldNotifySlack(err)) {
+      const errorData = extractErrorData(
+        {
+          websocketContext: event,
+          parsedBody: {},
+          targetResource: { method: 'WS', resource: routeKey || 'unknown' }
+        },
+        err
+      );
+      notifySlackAsync(errorData);
+    }
 
     return failure(msg, HttpStatusCode.InternalServerError);
   }
