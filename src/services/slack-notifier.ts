@@ -31,11 +31,19 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
  * These errors are mapped to HttpCodedError with statusCode 400 and message
  * "Invalid or expired token" after retries are exhausted.
  *
+ * This function is intentionally strict to ensure ONLY retried 401 errors from
+ * the core API are filtered. All other errors (timeouts, network errors, 5xx, etc.)
+ * should be sent to Slack even if they were retried.
+ *
  * @param error - The error to check
  * @returns True if the error is a retried 401 from the core API, false otherwise
  */
 function isRetriedCoreApi401Error(error: unknown): boolean {
   if (!(error instanceof HttpCodedError)) {
+    return false;
+  }
+
+  if (error.name !== 'HttpCodedError') {
     return false;
   }
 
@@ -47,11 +55,20 @@ function isRetriedCoreApi401Error(error: unknown): boolean {
     return false;
   }
 
-  if (error.details && typeof error.details === 'object' && 'backendMessage' in error.details) {
-    return true;
+  if (!error.details || typeof error.details !== 'object') {
+    return false;
   }
 
-  return false;
+  if (!('backendMessage' in error.details)) {
+    return false;
+  }
+
+  const backendMessage = error.details.backendMessage;
+  if (typeof backendMessage !== 'string' || backendMessage.trim().length === 0) {
+    return false;
+  }
+
+  return true;
 }
 
 function serializeError(error: unknown): Record<string, unknown> {

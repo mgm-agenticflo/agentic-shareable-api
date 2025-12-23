@@ -10,7 +10,7 @@ import logger from '../utils/logger';
 const DEFAULT_REQUEST_TIMEOUT = 30000;
 
 /**
- * Maximum number of retry attempts for 401 errors.
+ * Maximum number of retry attempts for retryable errors.
  */
 const MAX_RETRY_ATTEMPTS = 5;
 
@@ -70,6 +70,74 @@ function buildHttpsAgent(opts: { insecureTLS?: boolean }) {
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Determines if an Axios error is retryable.
+ *
+ * Retryable errors include:
+ * - Network errors (timeouts, connection failures, DNS errors)
+ * - HTTP 401 Unauthorized
+ * - HTTP 429 Too Many Requests
+ * - HTTP 5xx Server Errors (500, 502, 503, 504)
+ *
+ * @param error - Axios error to check
+ * @returns True if the error is retryable, false otherwise
+ * @internal
+ */
+function isRetryableError(error: AxiosError): boolean {
+  if (!error.response) {
+    const code = error.code;
+    if (
+      code === 'ECONNABORTED' ||
+      code === 'ETIMEDOUT' ||
+      code === 'ENOTFOUND' ||
+      code === 'ECONNREFUSED' ||
+      code === 'ECONNRESET'
+    ) {
+      return true;
+    }
+    return true;
+  }
+
+  const status = error.response.status;
+  return (
+    status === (HttpStatusCode.Unauthorized as number) ||
+    status === (HttpStatusCode.TooManyRequests as number) ||
+    status === (HttpStatusCode.InternalServerError as number) ||
+    status === (HttpStatusCode.BadGateway as number) ||
+    status === (HttpStatusCode.ServiceUnavailable as number) ||
+    status === (HttpStatusCode.GatewayTimeout as number)
+  );
+}
+
+/**
+ * Gets a descriptive error type string for logging.
+ *
+ * @param error - Axios error
+ * @returns Descriptive error type string
+ * @internal
+ */
+function getErrorType(error: AxiosError): string {
+  if (!error.response) {
+    const code = error.code;
+    if (code === 'ECONNABORTED') return 'Timeout';
+    if (code === 'ETIMEDOUT') return 'Connection Timeout';
+    if (code === 'ENOTFOUND') return 'DNS Error';
+    if (code === 'ECONNREFUSED') return 'Connection Refused';
+    if (code === 'ECONNRESET') return 'Connection Reset';
+    return 'Network Error';
+  }
+
+  const status = error.response.status;
+  if (status === 401) return 'HTTP 401 Unauthorized';
+  if (status === 429) return 'HTTP 429 Too Many Requests';
+  if (status === 500) return 'HTTP 500 Internal Server Error';
+  if (status === 502) return 'HTTP 502 Bad Gateway';
+  if (status === 503) return 'HTTP 503 Service Unavailable';
+  if (status === 504) return 'HTTP 504 Gateway Timeout';
+
+  return `HTTP ${status}`;
 }
 
 /**
@@ -147,12 +215,44 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
     }
   });
 
-  // Request interceptor for logging
+  // Request interceptor for logging and retry handling
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
       return config;
     },
-    (error: AxiosError) => {
+    async (error: AxiosError) => {
+      const config = error.config as InternalAxiosRequestConfig & { __retryCount?: number };
+
+      if (isRetryableError(error) && config) {
+        const retryCount = config.__retryCount ?? 0;
+
+        if (retryCount < MAX_RETRY_ATTEMPTS) {
+          const nextRetryCount = retryCount + 1;
+          const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, retryCount), MAX_RETRY_DELAY);
+          const errorType = getErrorType(error);
+
+          logger.warn(`${errorType} (Request) - Retrying request (attempt ${nextRetryCount}/${MAX_RETRY_ATTEMPTS})`, {
+            url: config.url,
+            retryCount: nextRetryCount,
+            delay,
+            errorCode: error.code
+          });
+
+          config.__retryCount = nextRetryCount;
+
+          await sleep(delay);
+
+          return client.request(config);
+        } else {
+          const errorType = getErrorType(error);
+          logger.error(`${errorType} (Request) - Max retries (${MAX_RETRY_ATTEMPTS}) exceeded`, {
+            url: config.url,
+            retryCount,
+            errorCode: error.code
+          });
+        }
+      }
+
       logger.error('HTTP Request Error', error);
       const mappedError = mapBackendErrorToFrontend(error);
       return Promise.reject(mappedError);
@@ -169,17 +269,20 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
       const url = error.config?.url;
       const config = error.config as InternalAxiosRequestConfig & { __retryCount?: number };
 
-      if (status === HttpStatusCode.Unauthorized && config) {
+      if (isRetryableError(error) && config) {
         const retryCount = config.__retryCount ?? 0;
 
         if (retryCount < MAX_RETRY_ATTEMPTS) {
           const nextRetryCount = retryCount + 1;
           const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, retryCount), MAX_RETRY_DELAY);
+          const errorType = getErrorType(error);
 
-          logger.warn(`HTTP 401 Error - Retrying request (attempt ${nextRetryCount}/${MAX_RETRY_ATTEMPTS})`, {
+          logger.warn(`${errorType} - Retrying request (attempt ${nextRetryCount}/${MAX_RETRY_ATTEMPTS})`, {
             url,
             retryCount: nextRetryCount,
-            delay
+            delay,
+            errorCode: error.code,
+            statusCode: status
           });
 
           config.__retryCount = nextRetryCount;
@@ -188,9 +291,12 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
 
           return client.request(config);
         } else {
-          logger.error(`HTTP 401 Error - Max retries (${MAX_RETRY_ATTEMPTS}) exceeded`, {
+          const errorType = getErrorType(error);
+          logger.error(`${errorType} - Max retries (${MAX_RETRY_ATTEMPTS}) exceeded`, {
             url,
-            retryCount
+            retryCount,
+            errorCode: error.code,
+            statusCode: status
           });
         }
       }
@@ -198,7 +304,8 @@ export function createHttpClient(config: HttpClientConfig): AxiosInstance {
       logger.error('HTTP Response Error', error, {
         status,
         url,
-        data: error.response?.data
+        data: error.response?.data,
+        errorCode: error.code
       });
 
       const mappedError = mapBackendErrorToFrontend(error);
