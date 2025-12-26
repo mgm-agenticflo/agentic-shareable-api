@@ -1,0 +1,1 @@
+{"version":3,"file":"ws-auth.d.ts","sourceRoot":"","sources":["../../src/middlewares/ws-auth.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,0BAA0B,CAAC;AAK5D;;;;;;;;;GASG;AACH,wBAAgB,qBAAqB,CAAC,UAAU,EAAE,gBAAgB,EAAE,OAAO,EAAE,MAAM,GAAG,IAAI,CASzF"}

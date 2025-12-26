@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentic-shareables-api
+    ports:
+      - "${HTTP_PORT:-3000}:3000"
+      - "${WS_PORT:-3001}:3001"
+    environment:
+      # Core API configuration
+      - AGENTICFLO_BASE_URL=${AGENTICFLO_BASE_URL}
+      - AGENTICFLO_REQUEST_TIMEOUT=${AGENTICFLO_REQUEST_TIMEOUT:-10000}
+      - AGENTICFLO_BACKPLANE_TOKEN=${AGENTICFLO_BACKPLANE_TOKEN}
+      - AGENTICFLO_TLS_INSECURE=${AGENTICFLO_TLS_INSECURE}
+      
+      # Authentication
+      - CLIENT_AUTH_SECRET=${CLIENT_AUTH_SECRET}
+      - DEFAULT_CLIENT_AUTH_TTL=${DEFAULT_CLIENT_AUTH_TTL:-10m}
+      
+      # Server configuration
+      - HTTP_PORT=${HTTP_PORT:-3000}
+      - WS_PORT=${WS_PORT:-3001}
+      - HTTP_BASE_PATH=${HTTP_BASE_PATH:-}
+      
+      # DynamoDB configuration
+      - WS_CONNECTIONS_TABLE=${WS_CONNECTIONS_TABLE:-agentic-shareables-api-connections-dev}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - STAGE=${STAGE:-dev}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+

@@ -1,0 +1,1 @@
+{"version":3,"file":"shareable-context.d.ts","sourceRoot":"","sources":["../../src/types/shareable-context.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,gBAAgB,GAAG;IAC7B,KAAK,EAAE,MAAM,CAAC;IACd,IAAI,EAAE,MAAM,CAAC;IACb,EAAE,EAAE,MAAM,CAAC;IACX,QAAQ,CAAC,EAAE,MAAM,EAAE,CAAC;CACrB,CAAC"}

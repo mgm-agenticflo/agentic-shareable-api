@@ -1,9 +1,5 @@
-import { APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { Response } from 'express';
-import { PublicError, WebsocketResponse } from '../types/response-types';
 import { HttpStatusCode } from 'axios';
 import { getErrorMessage } from './lib';
-
 /**
  * Creates a successful API Gateway response with standardized JSON structure.
  *
@@ -30,12 +26,11 @@ import { getErrorMessage } from './lib';
  * // => { statusCode: 201, body: '{"success":true,"result":{"items":[]}}', ... }
  * ```
  */
-export const success = (result?: unknown, statusCode = HttpStatusCode.Ok): APIGatewayProxyStructuredResultV2 => ({
-  statusCode,
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ success: true, result: result || 'Ok' })
+export const success = (result, statusCode = HttpStatusCode.Ok) => ({
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ success: true, result: result || 'Ok' })
 });
-
 /**
  * Creates an error API Gateway response with standardized JSON structure.
  *
@@ -69,23 +64,18 @@ export const success = (result?: unknown, statusCode = HttpStatusCode.Ok): APIGa
  * // }
  * ```
  */
-export const failure = (
-  message: string,
-  statusCode = HttpStatusCode.InternalServerError,
-  error?: Error
-): APIGatewayProxyStructuredResultV2 => {
-  const response = {
-    statusCode,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      success: false,
-      message,
-      error: parseError(error)
-    })
-  };
-  return response;
+export const failure = (message, statusCode = HttpStatusCode.InternalServerError, error) => {
+    const response = {
+        statusCode,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            success: false,
+            message,
+            error: parseError(error)
+        })
+    };
+    return response;
 };
-
 /**
  * Parses and normalizes error data into a consistent PublicError format.
  *
@@ -118,43 +108,33 @@ export const failure = (
  *
  * @internal
  */
-function parseError(error: Error | undefined): PublicError {
-  if (!error) {
-    return {
-      message: 'Error',
-      code: 'UNKNOWN'
-    };
-  }
-
-  // Extract message from various formats
-  const message = getErrorMessage(error);
-
-  // Extract optional error code
-  const code = 'code' in error ? String(error.code) : undefined;
-
-  return { message, code };
+function parseError(error) {
+    if (!error) {
+        return {
+            message: 'Error',
+            code: 'UNKNOWN'
+        };
+    }
+    // Extract message from various formats
+    const message = getErrorMessage(error);
+    // Extract optional error code
+    const code = 'code' in error ? String(error.code) : undefined;
+    return { message, code };
 }
-
-export const wsSuccess = (result?: unknown, statusCode = HttpStatusCode.Ok): WebsocketResponse => ({
-  statusCode,
-  success: true,
-  message: 'Ok',
-  result
-});
-
-export const wsFailure = (
-  message: string,
-  statusCode = HttpStatusCode.InternalServerError,
-  error?: Error
-): WebsocketResponse => {
-  return {
+export const wsSuccess = (result, statusCode = HttpStatusCode.Ok) => ({
     statusCode,
-    success: false,
-    message,
-    error: parseError(error)
-  };
+    success: true,
+    message: 'Ok',
+    result
+});
+export const wsFailure = (message, statusCode = HttpStatusCode.InternalServerError, error) => {
+    return {
+        statusCode,
+        success: false,
+        message,
+        error: parseError(error)
+    };
 };
-
 /**
  * Express.js response helper for successful responses
  * Sends a JSON response with success: true and result data
@@ -163,13 +143,12 @@ export const wsFailure = (
  * @param result - The data to return in the response body
  * @param statusCode - HTTP status code (defaults to 200 OK)
  */
-export const expressSuccess = (res: Response, result?: unknown, statusCode = HttpStatusCode.Ok): void => {
-  res.status(statusCode).json({
-    success: true,
-    result: result || 'Ok'
-  });
+export const expressSuccess = (res, result, statusCode = HttpStatusCode.Ok) => {
+    res.status(statusCode).json({
+        success: true,
+        result: result || 'Ok'
+    });
 };
-
 /**
  * Express.js response helper for error responses
  * Sends a JSON response with success: false and error details
@@ -179,15 +158,11 @@ export const expressSuccess = (res: Response, result?: unknown, statusCode = Htt
  * @param statusCode - HTTP status code (defaults to 500 Internal Server Error)
  * @param error - Optional error object for additional details
  */
-export const expressFailure = (
-  res: Response,
-  message: string,
-  statusCode = HttpStatusCode.InternalServerError,
-  error?: Error
-): void => {
-  res.status(statusCode).json({
-    success: false,
-    message,
-    error: parseError(error)
-  });
+export const expressFailure = (res, message, statusCode = HttpStatusCode.InternalServerError, error) => {
+    res.status(statusCode).json({
+        success: false,
+        message,
+        error: parseError(error)
+    });
 };
+//# sourceMappingURL=response.js.map
